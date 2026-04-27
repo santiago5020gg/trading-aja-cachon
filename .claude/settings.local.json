@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"https://en.wikipedia.org/wiki/Bollinger_Bands\")",
+      "WebFetch(domain:en.wikipedia.org)",
+      "WebFetch(domain:www.investopedia.com)",
+      "WebFetch(domain:quantpedia.com)",
+      "WebFetch(domain:school.stockcharts.com)",
+      "WebFetch(domain:blog.quantinsti.com)",
+      "WebFetch(domain:www.quantifiedstrategies.com)",
+      "WebFetch(domain:www.elitetrader.com)",
+      "WebFetch(domain:thepatternsite.com)",
+      "WebFetch(domain:papers.ssrn.com)",
+      "WebFetch(domain:www.cmegroup.com)",
+      "WebFetch(domain:quantifiedstrategies.com)",
+      "WebFetch(domain:tradingstrategy.medium.com)",
+      "WebFetch(domain:www.quantstart.com)",
+      "WebFetch(domain:blog.earn2trade.com)",
+      "WebFetch(domain:www.earn2trade.com)",
+      "WebFetch(domain:www.tradingview.com)",
+      "WebFetch(domain:therobusttrader.com)",
+      "WebFetch(domain:financial-hacker.com)",
+      "WebFetch(domain:www.reddit.com)",
+      "WebFetch(domain:www.financialwisdomforum.org)",
+      "WebFetch(domain:vantagemarkets.com)",
+      "WebFetch(domain:www.youtube.com)",
+      "WebFetch(domain:academy.ftmo.com)",
+      "WebFetch(domain:www.buildalpha.com)",
+      "WebFetch(domain:breakingequity.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:www.tandfonline.com)",
+      "WebFetch(domain:robotwealth.com)",
+      "WebFetch(domain:www.backtrader.com)",
+      "WebFetch(domain:stackoverflow.com)",
+      "WebFetch(domain:www.sciencedirect.com)",
+      "WebFetch(domain:www.daytrading.com)",
+      "WebFetch(domain:www.optionstrading.org)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}
