@@ -411,6 +411,12 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (CurrentBar < BarsRequiredToTrade)
                 return;
+
+            currentRegime = DetectRegime();
+            bool isLong = IsLongRegime(currentRegime);
+            currentScore = (currentRegime != MarketRegime.Range)
+                ? CalculateEntryScore(isLong)
+                : 0;
         }
 
         #endregion
@@ -499,6 +505,304 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (hours < 13.5) return 0.80;
             if (hours < 15.0) return 1.00;
             return 0.60;
+        }
+
+        #endregion
+
+        #region Regime Detection
+
+        private MarketRegime DetectRegime()
+        {
+            double smaSpread = Math.Abs(smaFast[0] - smaSlow[0]) / atr[0];
+            double slopeFast = GetNormalizedSlope(smaFast, SlopeLookback);
+            double slopeSlow = GetNormalizedSlope(smaSlow, SlopeLookback);
+
+            bool isRange = smaSpread < SpreadThresholdLow
+                && Math.Abs(slopeFast) < RangeMaxSlope20
+                && Math.Abs(slopeSlow) < RangeMaxSlope200;
+
+            if (isRange)
+                return MarketRegime.Range;
+
+            double zScoreVsSma200 = stdDev[0] > 0
+                ? (Close[0] - smaSlow[0]) / stdDev[0]
+                : 0;
+
+            double distToSma200 = Math.Abs(Close[0] - smaSlow[0]) / atr[0];
+
+            if (smaFast[0] < smaSlow[0] && smaSpread >= SpreadThresholdLow && slopeFast < 0)
+            {
+                if (distToSma200 < 1.5 && rsi[0] < 30 && zScoreVsSma200 < -2.0)
+                    return MarketRegime.CounterTrendBullish;
+                return MarketRegime.Bearish;
+            }
+
+            if (smaFast[0] > smaSlow[0] && smaSpread >= SpreadThresholdLow && slopeFast > 0)
+            {
+                if (distToSma200 < 1.5 && rsi[0] > 70 && zScoreVsSma200 > 2.0)
+                    return MarketRegime.CounterTrendBearish;
+                return MarketRegime.Bullish;
+            }
+
+            if (smaFast[0] < smaSlow[0])
+            {
+                if (distToSma200 < 1.5 && rsi[0] < 30 && zScoreVsSma200 < -2.0)
+                    return MarketRegime.CounterTrendBullish;
+                return MarketRegime.Bearish;
+            }
+
+            if (smaFast[0] > smaSlow[0])
+            {
+                if (distToSma200 < 1.5 && rsi[0] > 70 && zScoreVsSma200 > 2.0)
+                    return MarketRegime.CounterTrendBearish;
+                return MarketRegime.Bullish;
+            }
+
+            return MarketRegime.Range;
+        }
+
+        private bool IsCounterTrend(MarketRegime regime)
+        {
+            return regime == MarketRegime.CounterTrendBullish || regime == MarketRegime.CounterTrendBearish;
+        }
+
+        private bool IsLongRegime(MarketRegime regime)
+        {
+            return regime == MarketRegime.Bullish || regime == MarketRegime.CounterTrendBullish;
+        }
+
+        #endregion
+
+        #region Entry Score Calculation
+
+        private double CalculateEntryScore(bool isLong)
+        {
+            double fZscore = CalcFZscore();
+            double fRsi = CalcFRsi(isLong);
+            double fSlope = CalcFSlope(isLong);
+            double fAtr = CalcFAtr();
+            double fVolume = CalcFVolume();
+            double fPullback = CalcFPullback(isLong);
+            double fCandle = CalcFCandle(isLong);
+
+            double sRaw = WeightZscore * fZscore
+                + WeightRsi * fRsi
+                + WeightSlope * fSlope
+                + WeightAtr * fAtr
+                + WeightVolume * fVolume
+                + WeightPullback * fPullback
+                + WeightCandle * fCandle;
+
+            double score = 100.0 / (1.0 + Math.Exp(-12.0 * (sRaw - 0.5)));
+            return score;
+        }
+
+        private double CalcFZscore()
+        {
+            if (stdDev[0] <= 0) return 0.5;
+            double z = (Close[0] - smaFast[0]) / stdDev[0];
+            return GaussianKernel(z);
+        }
+
+        private double CalcFRsi(bool isLong)
+        {
+            if (isLong)
+                return Sigmoid(-0.15 * (rsi[0] - 40.0));
+            else
+                return Sigmoid(0.15 * (rsi[0] - 60.0));
+        }
+
+        private double CalcFSlope(bool isLong)
+        {
+            double slope = GetNormalizedSlope(smaFast, SlopeLookback);
+            if (isLong)
+                return Sigmoid(10.0 * slope);
+            else
+                return Sigmoid(-10.0 * slope);
+        }
+
+        private double CalcFAtr()
+        {
+            if (atr[0] <= 0) return 0.5;
+            double avgRange = GetAvgRange(CandleLookback);
+            double volRatio = avgRange / atr[0];
+
+            if (volRatio < 0.50)
+                return 0.70;
+            if (volRatio < 0.70)
+                return 0.70 + 0.30 * (volRatio - 0.50) / 0.20;
+            if (volRatio <= 1.30)
+                return 1.00;
+            if (volRatio <= 2.00)
+                return 1.00 - 0.50 * (volRatio - 1.30) / 0.70;
+            return 0.50;
+        }
+
+        private double CalcFVolume()
+        {
+            if (volumeSma[0] <= 0) return 0.5;
+            double volRatio = Volume[0] / volumeSma[0];
+            return Sigmoid(5.0 * (volRatio - 1.2));
+        }
+
+        private double CalcFPullback(bool isLong)
+        {
+            if (atr[0] <= 0) return 0.5;
+            double d = (Close[0] - smaFast[0]) / atr[0];
+            if (isLong)
+                return GaussianKernelCustom(d, -0.5, 0.7);
+            else
+                return GaussianKernelCustom(d, 0.5, 0.7);
+        }
+
+        private double CalcFCandle(bool isLong)
+        {
+            double body = Math.Abs(Close[0] - Open[0]);
+            double range = High[0] - Low[0];
+            double lowerWick = Math.Min(Open[0], Close[0]) - Low[0];
+            double upperWick = High[0] - Math.Max(Open[0], Close[0]);
+
+            if (range <= 0) return 0;
+
+            bool isBullishBar = Close[0] > Open[0];
+            bool isBearishBar = Close[0] < Open[0];
+
+            if (isLong)
+            {
+                bool engulfing = isBullishBar && CurrentBar > 0
+                    && Close[0] > Open[1] && Open[0] < Close[1]
+                    && Open[1] > Close[1];
+                if (engulfing) return 1.00;
+
+                bool hammer = isBullishBar && body > 0
+                    && lowerWick > 2.0 * body && upperWick < 0.3 * body;
+                if (hammer) return 0.85;
+
+                if (isBullishBar && body > 0.6 * range)
+                    return 0.60;
+
+                if (isBullishBar)
+                    return 0.30;
+
+                return 0.00;
+            }
+            else
+            {
+                bool engulfing = isBearishBar && CurrentBar > 0
+                    && Close[0] < Open[1] && Open[0] > Close[1]
+                    && Open[1] < Close[1];
+                if (engulfing) return 1.00;
+
+                bool shootingStar = isBearishBar && body > 0
+                    && upperWick > 2.0 * body && lowerWick < 0.3 * body;
+                if (shootingStar) return 0.85;
+
+                if (isBearishBar && body > 0.6 * range)
+                    return 0.60;
+
+                if (isBearishBar)
+                    return 0.30;
+
+                return 0.00;
+            }
+        }
+
+        #endregion
+
+        #region Position Sizing
+
+        private int CalculatePositionSize(MarketRegime regime, double score)
+        {
+            bool isCounter = IsCounterTrend(regime);
+            bool isLong = IsLongRegime(regime);
+
+            double atrMultiplier = isCounter ? AtrMultiplierCounter : AtrMultiplierTrend;
+            double slPoints = atrMultiplier * atr[0];
+            double slDollars = slPoints * 2.0;
+
+            currentStopDistance = slPoints;
+            currentTargetDistance = slPoints * RewardRiskRatio;
+
+            if (slDollars <= 0) return 0;
+
+            double nFixed = (MaxDailyLoss * RiskPerTradeFraction) / slDollars;
+
+            double kellyStar = rollingWinRate - (1.0 - rollingWinRate) / rollingRR;
+            double kellyAdj = kellyStar * KellyFraction;
+            double nKelly = kellyAdj > 0
+                ? (MaxDailyLoss * kellyAdj) / slDollars
+                : 0;
+
+            double nBase = kellyStar > 0 ? Math.Min(nFixed, nKelly) : nFixed;
+
+            double cSpread = CalcCSpread(isCounter);
+            double cSlope = CalcCSlope(isLong);
+            double cVol = CalcCVol();
+            double dailyBudget = CalcDailyBudget();
+            double cTime = GetCTime();
+
+            double nRaw = nBase * cSpread * cSlope * cVol * dailyBudget * cTime;
+
+            if (isCounter)
+                nRaw *= CounterTrendSizePct;
+
+            if (score >= MinScoreTrend && score < 75)
+                nRaw *= ModerateScoreSizePct;
+
+            int nFinal = (int)Math.Floor(nRaw);
+
+            int nAbsMax = (int)Math.Floor(MaxDailyLoss / slDollars);
+            nFinal = Math.Max(1, Math.Min(nFinal, nAbsMax));
+
+            currentContracts = nFinal;
+            return nFinal;
+        }
+
+        private double CalcCSpread(bool isCounter)
+        {
+            if (isCounter) return 0.25;
+            double spread = Math.Abs(smaFast[0] - smaSlow[0]) / atr[0];
+            return LinearInterp(spread, SpreadThresholdLow, SpreadThresholdHigh, 0.50, 1.00);
+        }
+
+        private double CalcCSlope(bool isLong)
+        {
+            double normSlope = Math.Abs(GetNormalizedSlope(smaFast, SlopeLookback));
+            double base_ = LinearInterp(normSlope, SlopeThresholdLow, SlopeThresholdHigh, 0.50, 1.00);
+
+            double slopeFast = GetNormalizedSlope(smaFast, SlopeLookback);
+            double slopeSlow = GetNormalizedSlope(smaSlow, SlopeLookback);
+
+            bool fastAgrees = isLong ? slopeFast > 0 : slopeFast < 0;
+            bool slowAgrees = isLong ? slopeSlow > 0 : slopeSlow < 0;
+
+            double agreement;
+            if (fastAgrees && slowAgrees) agreement = 1.00;
+            else if (fastAgrees) agreement = 0.75;
+            else agreement = 0.50;
+
+            return base_ * agreement;
+        }
+
+        private double CalcCVol()
+        {
+            if (atr[0] <= 0) return 1.0;
+            double volRatio = GetAvgRange(CandleLookback) / atr[0];
+
+            if (volRatio < 0.70) return 1.20;
+            if (volRatio <= 1.30) return 1.00;
+            return Math.Max(0.40, 1.0 / volRatio);
+        }
+
+        private double CalcDailyBudget()
+        {
+            if (dailyPnL <= 0)
+            {
+                double remaining = MaxDailyLoss - Math.Abs(dailyPnL);
+                if (remaining <= 0) return 0;
+                return remaining / MaxDailyLoss;
+            }
+            return Math.Min(MaxAntiMartingale, 1.0 + (dailyPnL / MaxDailyLoss) * 0.25);
         }
 
         #endregion
