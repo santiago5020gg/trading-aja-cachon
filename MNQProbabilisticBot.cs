@@ -426,6 +426,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 : 0;
 
             EvaluateEntry();
+            DrawChartElements();
         }
 
         #endregion
@@ -1106,6 +1107,246 @@ namespace NinjaTrader.NinjaScript.Strategies
             catch (Exception ex)
             {
                 Print("MNQBot Load Stats Error: " + ex.Message);
+            }
+        }
+
+        #endregion
+
+        #region Chart Panel Drawing
+
+        protected override void OnRender(ChartControl chartControl, ChartScale chartScale)
+        {
+            base.OnRender(chartControl, chartScale);
+
+            if (!ShowPanel) return;
+            if (chartControl == null || RenderTarget == null) return;
+
+            float panelWidth = 310;
+            float panelHeight = 290;
+            float panelX = (float)chartControl.ActualWidth - panelWidth - 10;
+            float panelY = 10;
+
+            byte alpha = (byte)(PanelOpacity * 255 / 100);
+
+            var bgBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
+                new SharpDX.Color(30, 30, 30, alpha));
+            var borderBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
+                new SharpDX.Color(100, 100, 100, 255));
+            var textWhite = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
+                new SharpDX.Color(240, 240, 240, 255));
+            var textGreen = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
+                new SharpDX.Color(0, 200, 0, 255));
+            var textRed = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
+                new SharpDX.Color(220, 50, 50, 255));
+            var textOrange = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
+                new SharpDX.Color(255, 165, 0, 255));
+            var textGray = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
+                new SharpDX.Color(150, 150, 150, 255));
+            var textBlue = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
+                new SharpDX.Color(100, 149, 237, 255));
+            var textYellow = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
+                new SharpDX.Color(255, 255, 0, 255));
+            var barBg = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
+                new SharpDX.Color(60, 60, 60, 255));
+
+            var bgRect = new SharpDX.RectangleF(panelX, panelY, panelWidth, panelHeight);
+            RenderTarget.FillRectangle(bgRect, bgBrush);
+            RenderTarget.DrawRectangle(bgRect, borderBrush, 1.0f);
+
+            var factory = new SharpDX.DirectWrite.Factory();
+            var titleFormat = new SharpDX.DirectWrite.TextFormat(factory, "Consolas", 12f);
+            var textFormat = new SharpDX.DirectWrite.TextFormat(factory, "Consolas", 10f);
+
+            float y = panelY + 5;
+            float x = panelX + 8;
+            float lineH = 16;
+            float col2 = panelX + 160;
+
+            DrawPanelText("MNQ PROBABILISTIC BOT v1.0", x, y, panelWidth - 16, titleFormat, textWhite);
+            y += lineH + 2;
+
+            DrawPanelLine(panelX + 5, y, panelX + panelWidth - 5, y, borderBrush);
+            y += 5;
+
+            SharpDX.Direct2D1.SolidColorBrush regimeBrush;
+            string regimeText;
+            switch (currentRegime)
+            {
+                case MarketRegime.Bullish:
+                    regimeText = "BULLISH"; regimeBrush = textGreen; break;
+                case MarketRegime.Bearish:
+                    regimeText = "BEARISH"; regimeBrush = textRed; break;
+                case MarketRegime.CounterTrendBullish:
+                    regimeText = "COUNTER BULL"; regimeBrush = textOrange; break;
+                case MarketRegime.CounterTrendBearish:
+                    regimeText = "COUNTER BEAR"; regimeBrush = textOrange; break;
+                default:
+                    regimeText = dayDone ? "DAY DONE" : "RANGE";
+                    regimeBrush = dayDone ? textBlue : textGray; break;
+            }
+            DrawPanelText("Estado:", x, y, 80, textFormat, textWhite);
+            DrawPanelText(regimeText, col2, y, 140, textFormat, regimeBrush);
+            y += lineH;
+
+            DrawPanelText("Score:", x, y, 80, textFormat, textWhite);
+            SharpDX.Direct2D1.SolidColorBrush scoreBrush = currentScore >= 75 ? textGreen
+                : currentScore >= 65 ? textYellow : textGray;
+            DrawPanelText(string.Format("{0:F0}/100", currentScore), col2, y, 60, textFormat, scoreBrush);
+
+            float barX = col2 + 65;
+            float barW = 80;
+            float barH = 10;
+            float barY2 = y + 3;
+            RenderTarget.FillRectangle(new SharpDX.RectangleF(barX, barY2, barW, barH), barBg);
+            float fillW = (float)(barW * Math.Min(currentScore, 100) / 100.0);
+            RenderTarget.FillRectangle(new SharpDX.RectangleF(barX, barY2, fillW, barH), scoreBrush);
+            y += lineH;
+
+            DrawPanelLine(panelX + 5, y + 2, panelX + panelWidth - 5, y + 2, borderBrush);
+            y += 7;
+
+            DrawPanelText("Contratos:", x, y, 100, textFormat, textWhite);
+            DrawPanelText(currentContracts.ToString(), col2, y, 60, textFormat, textWhite);
+            y += lineH;
+
+            DrawPanelText("Stop Loss:", x, y, 100, textFormat, textWhite);
+            DrawPanelText(string.Format("{0:F1} pts (${1:F0})", currentStopDistance, currentStopDistance * 2),
+                col2, y, 140, textFormat, textRed);
+            y += lineH;
+
+            DrawPanelText("Take Profit:", x, y, 100, textFormat, textWhite);
+            DrawPanelText(string.Format("{0:F1} pts (${1:F0})", currentTargetDistance, currentTargetDistance * 2),
+                col2, y, 140, textFormat, textGreen);
+            y += lineH;
+
+            DrawPanelLine(panelX + 5, y + 2, panelX + panelWidth - 5, y + 2, borderBrush);
+            y += 7;
+
+            var pnlBrush = dailyPnL >= 0 ? textGreen : textRed;
+            DrawPanelText("PnL Dia:", x, y, 100, textFormat, textWhite);
+            DrawPanelText(string.Format("${0:F2}", dailyPnL), col2, y, 100, textFormat, pnlBrush);
+            y += lineH;
+
+            DrawPanelText("Trades:", x, y, 100, textFormat, textWhite);
+            DrawPanelText(string.Format("{0}/{1}", tradesToday, MaxTradesPerDay), col2, y, 60, textFormat, textWhite);
+            y += lineH;
+
+            double budget = CalcDailyBudget();
+            DrawPanelText("Presupuesto:", x, y, 100, textFormat, textWhite);
+            DrawPanelText(string.Format("{0:F0}%", budget * 100), col2, y, 60, textFormat, textWhite);
+            y += lineH;
+
+            DrawPanelText("WinRate:", x, y, 100, textFormat, textWhite);
+            DrawPanelText(string.Format("{0:F0}% ({1}t)", rollingWinRate * 100, tradeResults.Count),
+                col2, y, 100, textFormat, textWhite);
+            y += lineH;
+
+            DrawPanelLine(panelX + 5, y + 2, panelX + panelWidth - 5, y + 2, borderBrush);
+            y += 7;
+
+            TimeSpan nyTime = ToNYTime(Time[0]);
+            DrawPanelText("Hora NY:", x, y, 100, textFormat, textWhite);
+            DrawPanelText(string.Format("{0:hh\\:mm}", nyTime), col2, y, 60, textFormat, textWhite);
+            y += lineH;
+
+            DrawPanelText("ATR(14):", x, y, 100, textFormat, textWhite);
+            DrawPanelText(string.Format("{0:F1}", atr[0]), col2, y, 60, textFormat, textWhite);
+
+            DrawPanelText("RSI(7):", col2 + 65, y, 60, textFormat, textWhite);
+            DrawPanelText(string.Format("{0:F0}", rsi[0]), col2 + 120, y, 40, textFormat, textWhite);
+            y += lineH;
+
+            double smaSpread = atr[0] > 0 ? Math.Abs(smaFast[0] - smaSlow[0]) / atr[0] : 0;
+            DrawPanelText("Spread:", x, y, 100, textFormat, textWhite);
+            DrawPanelText(string.Format("{0:F1} ATR", smaSpread), col2, y, 60, textFormat, textWhite);
+
+            double zScore = stdDev[0] > 0 ? (Close[0] - smaFast[0]) / stdDev[0] : 0;
+            DrawPanelText("Z:", col2 + 65, y, 30, textFormat, textWhite);
+            DrawPanelText(string.Format("{0:F2}", zScore), col2 + 90, y, 50, textFormat, textWhite);
+
+            bgBrush.Dispose();
+            borderBrush.Dispose();
+            textWhite.Dispose();
+            textGreen.Dispose();
+            textRed.Dispose();
+            textOrange.Dispose();
+            textGray.Dispose();
+            textBlue.Dispose();
+            textYellow.Dispose();
+            barBg.Dispose();
+            titleFormat.Dispose();
+            textFormat.Dispose();
+            factory.Dispose();
+        }
+
+        private void DrawPanelText(string text, float x, float y, float width,
+            SharpDX.DirectWrite.TextFormat format, SharpDX.Direct2D1.SolidColorBrush brush)
+        {
+            var rect = new SharpDX.RectangleF(x, y, width, 20);
+            RenderTarget.DrawText(text, format, rect, brush);
+        }
+
+        private void DrawPanelLine(float x1, float y1, float x2, float y2,
+            SharpDX.Direct2D1.SolidColorBrush brush)
+        {
+            RenderTarget.DrawLine(
+                new SharpDX.Vector2(x1, y1),
+                new SharpDX.Vector2(x2, y2),
+                brush, 0.5f);
+        }
+
+        #endregion
+
+        #region Chart Drawings
+
+        private void DrawChartElements()
+        {
+            if (ShowPullbackZone && atr[0] > 0 && currentRegime != MarketRegime.Range)
+            {
+                double upper = smaFast[0] + 0.5 * atr[0];
+                double lower = smaFast[0] - 0.5 * atr[0];
+
+                System.Windows.Media.Brush zoneBrush = IsLongRegime(currentRegime)
+                    ? System.Windows.Media.Brushes.LimeGreen
+                    : System.Windows.Media.Brushes.Red;
+
+                Draw.HorizontalLine(this, "PB_Upper", upper, zoneBrush, DashStyleHelper.Dot, 1);
+                Draw.HorizontalLine(this, "PB_Lower", lower, zoneBrush, DashStyleHelper.Dot, 1);
+            }
+            else
+            {
+                RemoveDrawObject("PB_Upper");
+                RemoveDrawObject("PB_Lower");
+            }
+
+            if (ShowCounterZone && atr[0] > 0 && IsCounterTrend(currentRegime))
+            {
+                Draw.HorizontalLine(this, "CT_Upper",
+                    smaSlow[0] + 1.5 * atr[0], System.Windows.Media.Brushes.Orange,
+                    DashStyleHelper.Dot, 1);
+                Draw.HorizontalLine(this, "CT_Lower",
+                    smaSlow[0] - 1.5 * atr[0], System.Windows.Media.Brushes.Orange,
+                    DashStyleHelper.Dot, 1);
+            }
+            else
+            {
+                RemoveDrawObject("CT_Upper");
+                RemoveDrawObject("CT_Lower");
+            }
+
+            if (ShowStopTPLines && Position.MarketPosition != MarketPosition.Flat)
+            {
+                if (stopPrice > 0)
+                    Draw.HorizontalLine(this, "StopLine", stopPrice,
+                        System.Windows.Media.Brushes.Red, DashStyleHelper.Dash, 2);
+                if (targetPrice > 0)
+                    Draw.HorizontalLine(this, "TargetLine", targetPrice,
+                        System.Windows.Media.Brushes.LimeGreen, DashStyleHelper.Dash, 2);
+            }
+            else
+            {
+                RemoveDrawObject("StopLine");
+                RemoveDrawObject("TargetLine");
             }
         }
 
