@@ -285,9 +285,11 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double rollingWinRate;
         private double rollingRR;
         private List<double> tradeResults;
-        private List<double> tradeWins;
 
         private string statsFilePath;
+        private string lastTradeDirection;
+        private double lastExecutionPrice;
+        private TimeZoneInfo easternZone;
 
         #endregion
 
@@ -397,13 +399,16 @@ namespace NinjaTrader.NinjaScript.Strategies
                 AddChartIndicator(smaSlow);
 
                 tradeResults = new List<double>();
-                tradeWins = new List<double>();
+
                 rollingWinRate = InitialWinRate;
                 rollingRR = InitialRR;
 
                 statsFilePath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                     "NinjaTrader 8", "MNQBot_Stats.csv");
+
+                easternZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+                lastTradeDirection = "";
 
                 LoadHistoricalStats();
             }
@@ -485,8 +490,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private TimeSpan ToNYTime(DateTime barTime)
         {
-            TimeZoneInfo eastern = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
-            DateTime nyTime = TimeZoneInfo.ConvertTime(barTime, eastern);
+            DateTime nyTime = TimeZoneInfo.ConvertTime(barTime, easternZone);
             return nyTime.TimeOfDay;
         }
 
@@ -523,6 +527,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private MarketRegime DetectRegime()
         {
+            if (atr[0] <= 0) return MarketRegime.Range;
+
             double smaSpread = Math.Abs(smaFast[0] - smaSlow[0]) / atr[0];
             double slopeFast = GetNormalizedSlope(smaFast, SlopeLookback);
             double slopeSlow = GetNormalizedSlope(smaSlow, SlopeLookback);
@@ -850,6 +856,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 dailyPnL += pnl;
                 tradesToday++;
+                lastExecutionPrice = price;
 
                 RecordTrade(pnl);
 
@@ -933,6 +940,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 stopPrice = stopLevel;
                 targetPrice = targetLevel;
                 entryPrice = Close[0];
+                lastTradeDirection = "LONG";
 
                 SetStopLoss("LongEntry", CalculationMode.Price, stopLevel, false);
                 SetProfitTarget("LongEntry", CalculationMode.Price, targetLevel);
@@ -958,6 +966,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 stopPrice = stopLevel;
                 targetPrice = targetLevel;
                 entryPrice = Close[0];
+                lastTradeDirection = "SHORT";
 
                 SetStopLoss("ShortEntry", CalculationMode.Price, stopLevel, false);
                 SetProfitTarget("ShortEntry", CalculationMode.Price, targetLevel);
@@ -976,6 +985,9 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (isCounter)
             {
+                if (isLong && Close[0] > smaSlow[0]) return false;
+                if (!isLong && Close[0] < smaSlow[0]) return false;
+
                 double distToSma200 = Math.Abs(Close[0] - smaSlow[0]) / atr[0];
                 if (distToSma200 >= 1.5) return false;
 
@@ -1015,14 +1027,13 @@ namespace NinjaTrader.NinjaScript.Strategies
                     if (!fileExists)
                         sw.WriteLine("Date,Time,Direction,Contracts,EntryPrice,ExitPrice,PnL,Score,Regime");
 
-                    string direction = Position.MarketPosition == MarketPosition.Long ? "LONG" : "SHORT";
                     sw.WriteLine(string.Format("{0},{1},{2},{3},{4:F2},{5:F2},{6:F2},{7:F1},{8}",
                         DateTime.Now.ToString("yyyy-MM-dd"),
                         DateTime.Now.ToString("HH:mm:ss"),
-                        direction,
+                        lastTradeDirection,
                         currentContracts,
                         entryPrice,
-                        Close[0],
+                        lastExecutionPrice,
                         pnl,
                         currentScore,
                         currentRegime));
