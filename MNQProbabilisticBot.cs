@@ -404,6 +404,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 statsFilePath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                     "NinjaTrader 8", "MNQBot_Stats.csv");
+
+                LoadHistoricalStats();
             }
         }
 
@@ -412,11 +414,18 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (CurrentBar < BarsRequiredToTrade)
                 return;
 
+            if (Bars.IsFirstBarOfSession)
+                ResetDaily();
+
+            ManageExit();
+
             currentRegime = DetectRegime();
             bool isLong = IsLongRegime(currentRegime);
             currentScore = (currentRegime != MarketRegime.Range)
                 ? CalculateEntryScore(isLong)
                 : 0;
+
+            EvaluateEntry();
         }
 
         #endregion
@@ -803,6 +812,301 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return remaining / MaxDailyLoss;
             }
             return Math.Min(MaxAntiMartingale, 1.0 + (dailyPnL / MaxDailyLoss) * 0.25);
+        }
+
+        #endregion
+
+        #region Daily Control
+
+        private bool IsDayDone()
+        {
+            if (dailyPnL <= -MaxDailyLoss) return true;
+            if (dailyPnL >= DailyProfitTarget) return true;
+            if (tradesToday >= MaxTradesPerDay) return true;
+            if (!IsInTradingWindow()) return true;
+            return false;
+        }
+
+        private void ResetDaily()
+        {
+            dailyPnL = 0;
+            tradesToday = 0;
+            dayDone = false;
+            entryPrice = 0;
+            stopPrice = 0;
+            targetPrice = 0;
+        }
+
+        protected override void OnExecutionUpdate(Execution execution, string executionId,
+            double price, int quantity, MarketPosition marketPosition,
+            string orderId, DateTime time)
+        {
+            if (Position.MarketPosition == MarketPosition.Flat && entryPrice != 0)
+            {
+                double pnl = 0;
+                if (Performance.AllTrades.Count > 0)
+                    pnl = Performance.AllTrades[Performance.AllTrades.Count - 1].ProfitCurrency;
+
+                dailyPnL += pnl;
+                tradesToday++;
+
+                RecordTrade(pnl);
+
+                if (EnableSoundAlerts)
+                {
+                    if (pnl > 0) PlaySound(@"C:\Windows\Media\tada.wav");
+                    else if (pnl < 0) PlaySound(@"C:\Windows\Media\chord.wav");
+                }
+
+                entryPrice = 0;
+                stopPrice = 0;
+                targetPrice = 0;
+
+                if (IsDayDone())
+                {
+                    dayDone = true;
+                    if (EnableSoundAlerts)
+                        PlaySound(@"C:\Windows\Media\notify.wav");
+                }
+            }
+        }
+
+        #endregion
+
+        #region Exit Management
+
+        private void ManageExit()
+        {
+            if (IsFlattenTime() && Position.MarketPosition != MarketPosition.Flat)
+            {
+                if (Position.MarketPosition == MarketPosition.Long)
+                    ExitLong("Flatten", "LongEntry");
+                else if (Position.MarketPosition == MarketPosition.Short)
+                    ExitShort("Flatten", "ShortEntry");
+                return;
+            }
+        }
+
+        #endregion
+
+        #region Entry Management
+
+        private void EvaluateEntry()
+        {
+            if (Position.MarketPosition != MarketPosition.Flat)
+                return;
+
+            if (dayDone || IsDayDone())
+            {
+                dayDone = true;
+                return;
+            }
+
+            if (currentRegime == MarketRegime.Range)
+                return;
+
+            bool isLong = IsLongRegime(currentRegime);
+            bool isCounter = IsCounterTrend(currentRegime);
+
+            int minScore = isCounter ? MinScoreCounter : MinScoreTrend;
+            if (currentScore < minScore)
+                return;
+
+            if (!PassesRegimeFilters(isLong, isCounter))
+                return;
+
+            int contracts = CalculatePositionSize(currentRegime, currentScore);
+            if (contracts <= 0)
+                return;
+
+            if (isLong)
+            {
+                double stopLevel = isCounter
+                    ? smaSlow[0] - AtrMultiplierCounter * atr[0]
+                    : smaFast[0] - AtrMultiplierTrend * atr[0];
+                double riskPoints = Close[0] - stopLevel;
+                if (riskPoints <= 0) return;
+
+                double targetLevel = Close[0] + riskPoints * RewardRiskRatio;
+
+                stopPrice = stopLevel;
+                targetPrice = targetLevel;
+                entryPrice = Close[0];
+
+                SetStopLoss("LongEntry", CalculationMode.Price, stopLevel, false);
+                SetProfitTarget("LongEntry", CalculationMode.Price, targetLevel);
+                EnterLong(contracts, "LongEntry");
+
+                if (ShowEntryMarkers)
+                    Draw.ArrowUp(this, "Entry" + CurrentBar, 0, Low[0] - 2 * TickSize,
+                        System.Windows.Media.Brushes.LimeGreen);
+
+                if (EnableSoundAlerts)
+                    PlaySound(@"C:\Windows\Media\Windows Background.wav");
+            }
+            else
+            {
+                double stopLevel = isCounter
+                    ? smaSlow[0] + AtrMultiplierCounter * atr[0]
+                    : smaFast[0] + AtrMultiplierTrend * atr[0];
+                double riskPoints = stopLevel - Close[0];
+                if (riskPoints <= 0) return;
+
+                double targetLevel = Close[0] - riskPoints * RewardRiskRatio;
+
+                stopPrice = stopLevel;
+                targetPrice = targetLevel;
+                entryPrice = Close[0];
+
+                SetStopLoss("ShortEntry", CalculationMode.Price, stopLevel, false);
+                SetProfitTarget("ShortEntry", CalculationMode.Price, targetLevel);
+                EnterShort(contracts, "ShortEntry");
+
+                if (ShowEntryMarkers)
+                    Draw.ArrowDown(this, "Entry" + CurrentBar, 0, High[0] + 2 * TickSize,
+                        System.Windows.Media.Brushes.Red);
+
+                if (EnableSoundAlerts)
+                    PlaySound(@"C:\Windows\Media\Windows Background.wav");
+            }
+        }
+
+        private bool PassesRegimeFilters(bool isLong, bool isCounter)
+        {
+            if (isCounter)
+            {
+                double distToSma200 = Math.Abs(Close[0] - smaSlow[0]) / atr[0];
+                if (distToSma200 >= 1.5) return false;
+
+                if (isLong && rsi[0] >= 30) return false;
+                if (!isLong && rsi[0] <= 70) return false;
+
+                if (volumeSma[0] > 0 && Volume[0] < 1.5 * volumeSma[0])
+                    return false;
+
+                double fCandle = CalcFCandle(isLong);
+                if (fCandle < 0.60) return false;
+            }
+            else
+            {
+                double dist = Math.Abs(Close[0] - smaFast[0]) / atr[0];
+                if (dist > 0.5) return false;
+
+                if (isLong && rsi[0] >= 45) return false;
+                if (!isLong && rsi[0] <= 55) return false;
+            }
+
+            return true;
+        }
+
+        #endregion
+
+        #region Statistics Persistence
+
+        private void RecordTrade(double pnl)
+        {
+            try
+            {
+                bool fileExists = File.Exists(statsFilePath);
+
+                using (StreamWriter sw = new StreamWriter(statsFilePath, true))
+                {
+                    if (!fileExists)
+                        sw.WriteLine("Date,Time,Direction,Contracts,EntryPrice,ExitPrice,PnL,Score,Regime");
+
+                    string direction = Position.MarketPosition == MarketPosition.Long ? "LONG" : "SHORT";
+                    sw.WriteLine(string.Format("{0},{1},{2},{3},{4:F2},{5:F2},{6:F2},{7:F1},{8}",
+                        DateTime.Now.ToString("yyyy-MM-dd"),
+                        DateTime.Now.ToString("HH:mm:ss"),
+                        direction,
+                        currentContracts,
+                        entryPrice,
+                        Close[0],
+                        pnl,
+                        currentScore,
+                        currentRegime));
+                }
+
+                tradeResults.Add(pnl);
+                if (tradeResults.Count > RollingWindowSize)
+                    tradeResults.RemoveAt(0);
+
+                UpdateRollingStats();
+            }
+            catch (Exception ex)
+            {
+                Print("MNQBot Stats Error: " + ex.Message);
+            }
+        }
+
+        private void UpdateRollingStats()
+        {
+            if (tradeResults.Count < 5)
+            {
+                rollingWinRate = InitialWinRate;
+                rollingRR = InitialRR;
+                return;
+            }
+
+            int wins = 0;
+            double totalWin = 0;
+            double totalLoss = 0;
+            int lossCount = 0;
+
+            foreach (double pnl in tradeResults)
+            {
+                if (pnl > 0)
+                {
+                    wins++;
+                    totalWin += pnl;
+                }
+                else if (pnl < 0)
+                {
+                    lossCount++;
+                    totalLoss += Math.Abs(pnl);
+                }
+            }
+
+            rollingWinRate = (double)wins / tradeResults.Count;
+
+            if (lossCount > 0 && wins > 0)
+            {
+                double avgWin = totalWin / wins;
+                double avgLoss = totalLoss / lossCount;
+                rollingRR = avgLoss > 0 ? avgWin / avgLoss : InitialRR;
+            }
+            else
+            {
+                rollingRR = InitialRR;
+            }
+        }
+
+        private void LoadHistoricalStats()
+        {
+            try
+            {
+                if (!File.Exists(statsFilePath)) return;
+
+                string[] lines = File.ReadAllLines(statsFilePath);
+                int start = Math.Max(1, lines.Length - RollingWindowSize);
+
+                for (int i = start; i < lines.Length; i++)
+                {
+                    string[] parts = lines[i].Split(',');
+                    if (parts.Length >= 7)
+                    {
+                        double pnl;
+                        if (double.TryParse(parts[6], out pnl))
+                            tradeResults.Add(pnl);
+                    }
+                }
+
+                UpdateRollingStats();
+            }
+            catch (Exception ex)
+            {
+                Print("MNQBot Load Stats Error: " + ex.Message);
+            }
         }
 
         #endregion
