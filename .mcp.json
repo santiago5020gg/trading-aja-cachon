@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ninjatrader": {
+      "command": "node",
+      "args": ["mcp-ninjatrader/index.js"],
+      "env": {}
+    }
+  }
+}

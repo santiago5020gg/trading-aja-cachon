@@ -290,6 +290,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private string lastTradeDirection;
         private double lastExecutionPrice;
         private TimeZoneInfo easternZone;
+        private DateTime lastResetNYDate;
 
         #endregion
 
@@ -409,6 +410,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 easternZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
                 lastTradeDirection = "";
+                lastResetNYDate = DateTime.MinValue;
 
                 LoadHistoricalStats();
             }
@@ -419,10 +421,22 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (CurrentBar < BarsRequiredToTrade)
                 return;
 
-            if (Bars.IsFirstBarOfSession)
+            DateTime nyNow = TimeZoneInfo.ConvertTime(Time[0], easternZone);
+            DateTime nyDate = nyNow.Date;
+
+            if (nyDate != lastResetNYDate)
+            {
                 ResetDaily();
+                lastResetNYDate = nyDate;
+            }
 
             ManageExit();
+
+            if (!IsInTradingWindow())
+            {
+                DrawChartElements();
+                return;
+            }
 
             currentRegime = DetectRegime();
             bool isLong = IsLongRegime(currentRegime);
@@ -830,7 +844,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (dailyPnL <= -MaxDailyLoss) return true;
             if (dailyPnL >= DailyProfitTarget) return true;
             if (tradesToday >= MaxTradesPerDay) return true;
-            if (!IsInTradingWindow()) return true;
             return false;
         }
 
@@ -851,8 +864,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (Position.MarketPosition == MarketPosition.Flat && entryPrice != 0)
             {
                 double pnl = 0;
-                if (Performance.AllTrades.Count > 0)
-                    pnl = Performance.AllTrades[Performance.AllTrades.Count - 1].ProfitCurrency;
+                if (SystemPerformance.AllTrades.Count > 0)
+                    pnl = SystemPerformance.AllTrades[SystemPerformance.AllTrades.Count - 1].ProfitCurrency;
 
                 dailyPnL += pnl;
                 tradesToday++;
@@ -904,7 +917,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (Position.MarketPosition != MarketPosition.Flat)
                 return;
 
-            if (dayDone || IsDayDone())
+            if (dayDone)
+                return;
+
+            if (IsDayDone())
             {
                 dayDone = true;
                 return;
@@ -937,17 +953,20 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 double targetLevel = Close[0] + riskPoints * RewardRiskRatio;
 
+                int stopTicks = (int)Math.Max(1, Math.Round(riskPoints / TickSize));
+                int targetTicks = (int)Math.Max(1, Math.Round((riskPoints * RewardRiskRatio) / TickSize));
+
                 stopPrice = stopLevel;
                 targetPrice = targetLevel;
                 entryPrice = Close[0];
                 lastTradeDirection = "LONG";
 
-                SetStopLoss("LongEntry", CalculationMode.Price, stopLevel, false);
-                SetProfitTarget("LongEntry", CalculationMode.Price, targetLevel);
+                SetStopLoss("LongEntry", CalculationMode.Ticks, stopTicks, false);
+                SetProfitTarget("LongEntry", CalculationMode.Ticks, targetTicks);
                 EnterLong(contracts, "LongEntry");
 
                 if (ShowEntryMarkers)
-                    Draw.ArrowUp(this, "Entry" + CurrentBar, 0, Low[0] - 2 * TickSize,
+                    Draw.ArrowUp(this, "Entry" + CurrentBar, false, 0, Low[0] - 2 * TickSize,
                         System.Windows.Media.Brushes.LimeGreen);
 
                 if (EnableSoundAlerts)
@@ -963,17 +982,20 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 double targetLevel = Close[0] - riskPoints * RewardRiskRatio;
 
+                int stopTicks = (int)Math.Max(1, Math.Round(riskPoints / TickSize));
+                int targetTicks = (int)Math.Max(1, Math.Round((riskPoints * RewardRiskRatio) / TickSize));
+
                 stopPrice = stopLevel;
                 targetPrice = targetLevel;
                 entryPrice = Close[0];
                 lastTradeDirection = "SHORT";
 
-                SetStopLoss("ShortEntry", CalculationMode.Price, stopLevel, false);
-                SetProfitTarget("ShortEntry", CalculationMode.Price, targetLevel);
+                SetStopLoss("ShortEntry", CalculationMode.Ticks, stopTicks, false);
+                SetProfitTarget("ShortEntry", CalculationMode.Ticks, targetTicks);
                 EnterShort(contracts, "ShortEntry");
 
                 if (ShowEntryMarkers)
-                    Draw.ArrowDown(this, "Entry" + CurrentBar, 0, High[0] + 2 * TickSize,
+                    Draw.ArrowDown(this, "Entry" + CurrentBar, false, 0, High[0] + 2 * TickSize,
                         System.Windows.Media.Brushes.Red);
 
                 if (EnableSoundAlerts)
@@ -1131,6 +1153,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (!ShowPanel) return;
             if (chartControl == null || RenderTarget == null) return;
+            if (CurrentBar < BarsRequiredToTrade) return;
 
             float panelWidth = 310;
             float panelHeight = 290;
@@ -1140,25 +1163,25 @@ namespace NinjaTrader.NinjaScript.Strategies
             byte alpha = (byte)(PanelOpacity * 255 / 100);
 
             var bgBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
-                new SharpDX.Color(30, 30, 30, alpha));
+                new SharpDX.Color((byte)30, (byte)30, (byte)30, alpha));
             var borderBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
-                new SharpDX.Color(100, 100, 100, 255));
+                new SharpDX.Color((byte)100, (byte)100, (byte)100, (byte)255));
             var textWhite = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
-                new SharpDX.Color(240, 240, 240, 255));
+                new SharpDX.Color((byte)240, (byte)240, (byte)240, (byte)255));
             var textGreen = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
-                new SharpDX.Color(0, 200, 0, 255));
+                new SharpDX.Color((byte)0, (byte)200, (byte)0, (byte)255));
             var textRed = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
-                new SharpDX.Color(220, 50, 50, 255));
+                new SharpDX.Color((byte)220, (byte)50, (byte)50, (byte)255));
             var textOrange = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
-                new SharpDX.Color(255, 165, 0, 255));
+                new SharpDX.Color((byte)255, (byte)165, (byte)0, (byte)255));
             var textGray = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
-                new SharpDX.Color(150, 150, 150, 255));
+                new SharpDX.Color((byte)150, (byte)150, (byte)150, (byte)255));
             var textBlue = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
-                new SharpDX.Color(100, 149, 237, 255));
+                new SharpDX.Color((byte)100, (byte)149, (byte)237, (byte)255));
             var textYellow = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
-                new SharpDX.Color(255, 255, 0, 255));
+                new SharpDX.Color((byte)255, (byte)255, (byte)0, (byte)255));
             var barBg = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget,
-                new SharpDX.Color(60, 60, 60, 255));
+                new SharpDX.Color((byte)60, (byte)60, (byte)60, (byte)255));
 
             var bgRect = new SharpDX.RectangleF(panelX, panelY, panelWidth, panelHeight);
             RenderTarget.FillRectangle(bgRect, bgBrush);

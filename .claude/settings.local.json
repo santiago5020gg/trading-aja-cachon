@@ -37,7 +37,22 @@
       "WebFetch(domain:www.optionstrading.org)",
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(timeout 5 node index.js)",
+      "Bash(node -e \"import\\('./index.js'\\).then\\(\\(\\) => console.log\\('OK'\\)\\).catch\\(e => console.log\\('ERR:', e.message\\)\\)\")",
+      "Bash(timeout 3 cat)",
+      "Bash(node -e ' *)",
+      "mcp__ninjatrader__get_current_bar",
+      "Bash(curl -s http://localhost:8500/data)",
+      "mcp__ninjatrader__get_market_context",
+      "mcp__ninjatrader__get_bar_history",
+      "Bash(find /d/NinjaTrader* -name \"*MCPBridge*\" -type f)",
+      "Read(//c/Users/santiago.burgos/**)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "ninjatrader"
+  ]
 }
