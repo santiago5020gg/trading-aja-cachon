@@ -56,7 +56,7 @@ server.tool(
 server.tool(
   "get_bar_history",
   "Get historical bar data (OHLCV + SMA20 + SMA200) from the active NinjaTrader chart. Returns the most recent N bars.",
-  { count: z.number().min(1).max(500).default(50).describe("Number of bars to retrieve (1-500, default 50)") },
+  { count: z.number().min(1).max(750).default(50).describe("Number of bars to retrieve (1-750, default 50)") },
   async ({ count }) => {
     try {
       const data = await fetchNT("/data");
@@ -129,6 +129,108 @@ server.tool(
         },
       };
       return { content: [{ type: "text", text: JSON.stringify(context, null, 2) }] };
+    } catch (e) {
+      return { content: [{ type: "text", text: `Error: ${e.message}` }] };
+    }
+  }
+);
+
+server.tool(
+  "playback_goto",
+  "Fast-forward NinjaTrader Playback to a specific date/time. The playback will run at max speed and auto-pause when it reaches the target. Requires Playback mode active and playing in NinjaTrader. Time format: yyyy-MM-dd HH:mm",
+  { targetTime: z.string().describe("Target date/time in format yyyy-MM-dd HH:mm (e.g., '2026-02-11 09:32')") },
+  async ({ targetTime }) => {
+    try {
+      const res = await fetch(`${NT_URL}/playback/goto`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetTime }),
+        signal: AbortSignal.timeout(5000),
+      });
+      let text = await res.text();
+      const data = JSON.parse(text);
+
+      if (data.error) return { content: [{ type: "text", text: `Error: ${data.error}` }] };
+
+      const maxWait = 600000;
+      const pollInterval = 3000;
+      let elapsed = 0;
+
+      while (elapsed < maxWait) {
+        await new Promise((r) => setTimeout(r, pollInterval));
+        elapsed += pollInterval;
+
+        try {
+          const statusRes = await fetch(`${NT_URL}/playback/status`, { signal: AbortSignal.timeout(3000) });
+          const statusData = JSON.parse(await statusRes.text());
+
+          if (statusData.status === "arrived") {
+            const barRes = await fetch(`${NT_URL}/data`, { signal: AbortSignal.timeout(5000) });
+            let barText = await barRes.text();
+            barText = barText.replace(/(\d)F(\d)/g, "$1.$2");
+            barText = barText.replace(/:(-?)F(\d+)/g, ":${1}0");
+            barText = barText.replace(/(\d),(\d+)(?=[,\}\]\s])/g, "$1.$2");
+            const barData = JSON.parse(barText);
+
+            const summary = {
+              status: "arrived",
+              requestedTime: targetTime,
+              actualTime: barData.timestampNY,
+              instrument: barData.instrument,
+              bar: barData.current,
+              indicators: barData.indicators,
+            };
+            return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
+          }
+        } catch (_) {}
+      }
+
+      return { content: [{ type: "text", text: `Timeout: Playback did not reach ${targetTime} within ${maxWait / 1000}s. Check if Playback is running.` }] };
+    } catch (e) {
+      return { content: [{ type: "text", text: `Error: ${e.message}` }] };
+    }
+  }
+);
+
+server.tool(
+  "playback_pause",
+  "Pause the NinjaTrader Playback",
+  {},
+  async () => {
+    try {
+      const res = await fetch(`${NT_URL}/playback/pause`, { signal: AbortSignal.timeout(5000) });
+      const data = JSON.parse(await res.text());
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    } catch (e) {
+      return { content: [{ type: "text", text: `Error: ${e.message}` }] };
+    }
+  }
+);
+
+server.tool(
+  "playback_resume",
+  "Resume the NinjaTrader Playback at normal speed",
+  {},
+  async () => {
+    try {
+      const res = await fetch(`${NT_URL}/playback/resume`, { signal: AbortSignal.timeout(5000) });
+      const data = JSON.parse(await res.text());
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    } catch (e) {
+      return { content: [{ type: "text", text: `Error: ${e.message}` }] };
+    }
+  }
+);
+
+server.tool(
+  "playback_status",
+  "Check the current Playback status (idle, seeking, arrived, paused, playing)",
+  {},
+  async () => {
+    try {
+      const res = await fetch(`${NT_URL}/playback/status`, { signal: AbortSignal.timeout(5000) });
+      const data = JSON.parse(await res.text());
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     } catch (e) {
       return { content: [{ type: "text", text: `Error: ${e.message}` }] };
     }

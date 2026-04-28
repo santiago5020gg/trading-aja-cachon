@@ -49,7 +49,22 @@
       "mcp__ninjatrader__get_market_context",
       "mcp__ninjatrader__get_bar_history",
       "Bash(find /d/NinjaTrader* -name \"*MCPBridge*\" -type f)",
-      "Read(//c/Users/santiago.burgos/**)"
+      "Read(//c/Users/santiago.burgos/**)",
+      "WebFetch(domain:ninjatrader.com)",
+      "WebFetch(domain:forum.ninjatrader.com)",
+      "WebFetch(domain:www.google.com)",
+      "WebFetch(domain:www.bing.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:duckduckgo.com)",
+      "WebFetch(domain:html.duckduckgo.com)",
+      "WebFetch(domain:discourse.ninjatrader.com)",
+      "WebFetch(domain:www.ninjascriptstudio.com)",
+      "WebFetch(domain:daytradetowin.com)",
+      "WebFetch(domain:docs.algoboxpro.com)",
+      "WebFetch(domain:support.ninjatrader.com)",
+      "Bash(curl -s -L \"https://ninjatrader.com/support/helpGuides/nt8/playback.htm\")",
+      "mcp__ninjatrader__playback_goto",
+      "mcp__ninjatrader__playback_status"
     ]
   },
   "enabledMcpjsonServers": [
