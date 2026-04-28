@@ -64,7 +64,8 @@
       "WebFetch(domain:support.ninjatrader.com)",
       "Bash(curl -s -L \"https://ninjatrader.com/support/helpGuides/nt8/playback.htm\")",
       "mcp__ninjatrader__playback_goto",
-      "mcp__ninjatrader__playback_status"
+      "mcp__ninjatrader__playback_status",
+      "mcp__ninjatrader__ping"
     ]
   },
   "enabledMcpjsonServers": [
