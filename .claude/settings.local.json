@@ -65,7 +65,10 @@
       "Bash(curl -s -L \"https://ninjatrader.com/support/helpGuides/nt8/playback.htm\")",
       "mcp__ninjatrader__playback_goto",
       "mcp__ninjatrader__playback_status",
-      "mcp__ninjatrader__ping"
+      "mcp__ninjatrader__ping",
+      "Bash(cp \"/c/Users/santiago.burgos/OneDrive - Perficient, Inc/Documents/NinjaTrader 8/bin/Custom/AddOns/MCPBridge.cs\" \"/c/Users/santiago.burgos/OneDrive - Perficient, Inc/Documents/perficient/AI path lean/trading 7/MCPBridge.cs\")",
+      "Bash(cp \"/c/Users/santiago.burgos/OneDrive - Perficient, Inc/Documents/NinjaTrader 8/bin/Custom/Indicators/MCPBridgeIndicator.cs\" \"/c/Users/santiago.burgos/OneDrive - Perficient, Inc/Documents/perficient/AI path lean/trading 7/MCPBridgeIndicator.cs\")",
+      "Bash(cp \"/c/Users/santiago.burgos/OneDrive - Perficient, Inc/Documents/NinjaTrader 8/bin/Custom/Strategies/MNQEnCalienteBot.cs\" \"/c/Users/santiago.burgos/OneDrive - Perficient, Inc/Documents/perficient/AI path lean/trading 7/MNQEnCalienteBot.cs\")"
     ]
   },
   "enabledMcpjsonServers": [
