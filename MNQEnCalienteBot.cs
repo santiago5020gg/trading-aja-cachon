@@ -190,6 +190,9 @@ namespace NinjaTrader.NinjaScript.Strategies
         private List<string> tradeLog;
         private string lastAction;
 
+        private int barsSinceLastExit;
+        private int lastTradeDirection;
+
         private double lastScoreTend, lastScorePull, lastScoreRupt;
         private double[] lastFactors;
         private string lastDecision;
@@ -222,7 +225,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 IsInstantiatedOnEachOptimizationIteration = true;
                 IsOverlay = true;
 
-                ScoreEntryMin = 60;
+                ScoreEntryMin = 70;
                 ScoreHighConfidence = 80;
                 ScoreScalingMin = 70;
 
@@ -498,7 +501,23 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void EvaluateEntry(DateTime nyNow)
         {
+            barsSinceLastExit++;
+
             if (breatheWhipsawsToday >= MaxBreatheWhipsaws) return;
+
+            // Cooldown: wait 5 bars after any exit before re-entering
+            if (barsSinceLastExit < 5)
+            {
+                lastDecision = string.Format("COOLDOWN {0}/5 bars", barsSinceLastExit);
+                return;
+            }
+
+            // Don't enter after losing > $135 in the day
+            if (dailyPnL < -135)
+            {
+                lastDecision = string.Format("BLOCKED_DAILY_LOSS ${0:F0}", dailyPnL);
+                return;
+            }
 
             int bestDir = 0;
             double bestScore = 0;
@@ -521,21 +540,15 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (bestDir != 0)
                 CalcWeightedScore(bestType, bestDir);
 
+            // Direction flip penalty: need 10 extra points to reverse direction
+            if (lastTradeDirection != 0 && bestDir != lastTradeDirection)
+                bestScore -= 10;
+
             if (bestScore >= ScoreEntryMin)
             {
-                double initialStop;
-                if (bestDir == 1)
-                    initialStop = Low[0];
-                else
-                    initialStop = High[0];
-
-                double stopDist = Math.Abs(Close[0] - initialStop);
-                double atrStop = bestScore >= ScoreHighConfidence ? atr14[0] * 0.75 : atr14[0];
-
-                if (stopDist > atrStop)
-                    initialStop = bestDir == 1 ? Close[0] - atrStop : Close[0] + atrStop;
-
-                double potentialLoss = Math.Abs(Close[0] - initialStop) * 2;
+                double atrBuffer = atr14[0] * 0.5;
+                double estStop = bestDir == 1 ? Low[0] - atrBuffer : High[0] + atrBuffer;
+                double potentialLoss = Math.Abs(Close[0] - estStop) * 2;
                 if (dailyPnL - potentialLoss < -MaxDailyLoss)
                 {
                     lastDecision = string.Format("BLOCKED_RISK score={0:F1}", bestScore);
@@ -551,7 +564,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     default: signal = "Entry"; break;
                 }
 
-                EnterTrade(bestDir, Close[0], initialStop, bestType, bestScore, signal);
+                EnterTrade(bestDir, Close[0], estStop, bestType, bestScore, signal);
                 lastDecision = string.Format("ENTER {0} {1} score={2:F1}", bestType, bestDir == 1 ? "LONG" : "SHORT", bestScore);
             }
             else if (bestScore >= 40)
@@ -570,10 +583,16 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void EnterTrade(int direction, double price, double initialStop, EntryType type, double score, string signal)
         {
-            if (direction == 1 && initialStop >= price)
-                initialStop = price - atr14[0] * 0.75;
-            else if (direction == -1 && initialStop <= price)
-                initialStop = price + atr14[0] * 0.75;
+            double atrBuffer = atr14[0] * 0.5;
+            if (direction == 1)
+                initialStop = Low[0] - atrBuffer;
+            else
+                initialStop = High[0] + atrBuffer;
+
+            double stopDist = Math.Abs(price - initialStop);
+            double maxStop = score >= ScoreHighConfidence ? atr14[0] * 1.5 : atr14[0] * 2.0;
+            if (stopDist > maxStop)
+                initialStop = direction == 1 ? price - maxStop : price + maxStop;
 
             entryPrice = price;
             stopPrice = initialStop;
@@ -769,6 +788,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradeState = TradeState.Flat;
             tradeDirection = 0;
             lastEntryType = EntryType.None;
+            lastTradeDirection = 0;
+            barsSinceLastExit = 99;
             lastDecision = "NEW_DAY";
             lastScoreTend = 0;
             lastScorePull = 0;
@@ -779,6 +800,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             lastClosedDirection = tradeDirection;
             lastClosedReason = reason;
+            lastTradeDirection = tradeDirection;
+            barsSinceLastExit = 0;
 
             string fromSignal = activeEntrySignal ?? "";
             if (Position.MarketPosition == MarketPosition.Long)
