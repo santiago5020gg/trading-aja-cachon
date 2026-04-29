@@ -55,21 +55,33 @@ server.tool(
 
 server.tool(
   "get_bar_history",
-  "Get historical bar data (OHLCV + SMA20 + SMA200) from the active NinjaTrader chart. Returns the most recent N bars.",
-  { count: z.number().min(1).max(750).default(50).describe("Number of bars to retrieve (1-750, default 50)") },
-  async ({ count }) => {
+  "Get historical bar data (OHLCV + SMA20 + SMA200) from the active NinjaTrader chart. Can retrieve up to 22000 bars (~30 days of 2-min data). Use 'from' and 'to' for date ranges, or 'count' for most recent N bars. Set sessionOnly=true to filter regular session (09:30-16:00 ET) only.",
+  {
+    count: z.number().min(1).max(22000).optional().describe("Number of most recent bars (1-22000). Ignored if from/to provided."),
+    from: z.string().optional().describe("Start date/time: yyyy-MM-dd or yyyy-MM-dd HH:mm"),
+    to: z.string().optional().describe("End date/time: yyyy-MM-dd or yyyy-MM-dd HH:mm"),
+    sessionOnly: z.boolean().optional().describe("If true, only return regular session bars (09:30-16:00 ET)")
+  },
+  async ({ count, from, to, sessionOnly }) => {
     try {
-      const data = await fetchNT("/data");
+      let url = "/history?";
+      if (from && to) {
+        url += `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+      } else {
+        url += `count=${count || 750}`;
+      }
+      if (sessionOnly) url += "&session=1";
+
+      const data = await fetchNT(url);
       if (data.error) return { content: [{ type: "text", text: data.error }] };
 
-      const n = Math.min(count || 50, data.history ? data.history.length : 0);
-      const bars = data.history ? data.history.slice(-n) : [];
-
+      const meta = await fetchNT("/data");
       const result = {
-        instrument: data.instrument,
-        barPeriod: data.barPeriod,
-        barsReturned: bars.length,
-        bars: bars,
+        instrument: meta.instrument || "MNQ",
+        barPeriod: meta.barPeriod || "2 Min",
+        totalBarsInMemory: data.totalBars,
+        barsReturned: data.returnedBars,
+        bars: data.bars,
       };
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     } catch (e) {
@@ -89,8 +101,9 @@ server.tool(
 
       const ind = data.indicators;
       const cur = data.current;
-      const hist = data.history || [];
-      const recent = hist.slice(-20);
+      let hist = [];
+      try { const hdata = await fetchNT("/history?count=20"); hist = hdata.bars || []; } catch {}
+      const recent = hist;
 
       let trend = "RANGE";
       if (ind.sma20 > ind.sma200 && ind.smaSpread >= 1.0 && ind.sma20Slope > 0) trend = "BULLISH";

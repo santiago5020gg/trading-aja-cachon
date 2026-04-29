@@ -36,7 +36,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 IsOverlay = true;
                 DisplayInDataBox = false;
                 IsAutoScale = false;
-                HistoryBars = 750;
+                HistoryBars = 22000;
             }
             else if (State == State.DataLoaded)
             {
@@ -103,23 +103,19 @@ namespace NinjaTrader.NinjaScript.Indicators
                 ZScore = stdDev20[0] > 0 ? (Close[0] - sma20[0]) / stdDev20[0] : 0
             };
 
-            int barsToSend = Math.Min(HistoryBars, CurrentBar);
-            data.History = new List<BarData>(barsToSend);
-            for (int i = barsToSend - 1; i >= 0; i--)
+            MCPBridge.AppendBar(new BarData
             {
-                data.History.Add(new BarData
-                {
-                    Time = Time[i],
-                    Open = Open[i],
-                    High = High[i],
-                    Low = Low[i],
-                    Close = Close[i],
-                    Volume = Volume[i],
-                    SMA20 = sma20[i],
-                    SMA200 = sma200[i]
-                });
-            }
+                Time = Time[0],
+                Open = Open[0],
+                High = High[0],
+                Low = Low[0],
+                Close = Close[0],
+                Volume = Volume[0],
+                SMA20 = sma20[0],
+                SMA200 = sma200[0]
+            }, HistoryBars);
 
+            data.History = null;
             MCPBridge.UpdateData(data);
         }
     }

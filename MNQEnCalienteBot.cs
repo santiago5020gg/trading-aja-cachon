@@ -187,15 +187,21 @@ namespace NinjaTrader.NinjaScript.Strategies
         private string activeEntrySignal;
 
         private string telemetryPath = @"C:\temp\mnq_bot_status.json";
+        private string botHistoryDir = @"C:\Users\santiago.burgos\OneDrive - Perficient, Inc\Documents\perficient\AI path lean\trading 7\bot\history";
+        private string csvLogPath;
+        private string csvDailyPath;
         private List<string> tradeLog;
         private string lastAction;
-
-        private int barsSinceLastExit;
-        private int lastTradeDirection;
 
         private double lastScoreTend, lastScorePull, lastScoreRupt;
         private double[] lastFactors;
         private string lastDecision;
+
+        private DateTime entryTimeNY;
+        private double[] entryFactors;
+        private double prevDayPnL;
+        private int prevDayTrades;
+        private DateTime prevDayDate;
 
         #endregion
 
@@ -225,7 +231,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 IsInstantiatedOnEachOptimizationIteration = true;
                 IsOverlay = true;
 
-                ScoreEntryMin = 70;
+                ScoreEntryMin = 60;
                 ScoreHighConfidence = 80;
                 ScoreScalingMin = 70;
 
@@ -278,9 +284,15 @@ namespace NinjaTrader.NinjaScript.Strategies
                 tradeLog = new List<string>();
                 lastAction = "";
                 lastFactors = new double[6];
+                entryFactors = new double[6];
                 lastDecision = "WAITING";
+                prevDayDate = DateTime.MinValue;
 
                 try { Directory.CreateDirectory(@"C:\temp"); } catch {}
+                try { Directory.CreateDirectory(botHistoryDir); } catch {}
+                csvLogPath = Path.Combine(botHistoryDir, "mnq_trades_log.csv");
+                csvDailyPath = Path.Combine(botHistoryDir, "mnq_daily_log.csv");
+                InitCsvLogs();
             }
             else if (State == State.Realtime)
             {
@@ -302,6 +314,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (nyDate != lastResetDate)
             {
+                if (lastResetDate != DateTime.MinValue)
+                {
+                    prevDayPnL = dailyPnL;
+                    prevDayTrades = tradesToday;
+                    string reason = dayDone ? (dailyPnL <= -MaxDailyLoss ? "MaxLoss" : dailyPnL >= DailyProfitTarget ? "ProfitTarget" : "Whipsaws") : "SessionEnd";
+                    LogDailyCsv(lastResetDate, reason);
+                }
                 ResetDaily();
                 lastResetDate = nyDate;
             }
@@ -501,23 +520,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void EvaluateEntry(DateTime nyNow)
         {
-            barsSinceLastExit++;
-
             if (breatheWhipsawsToday >= MaxBreatheWhipsaws) return;
-
-            // Cooldown: wait 5 bars after any exit before re-entering
-            if (barsSinceLastExit < 5)
-            {
-                lastDecision = string.Format("COOLDOWN {0}/5 bars", barsSinceLastExit);
-                return;
-            }
-
-            // Don't enter after losing > $135 in the day
-            if (dailyPnL < -135)
-            {
-                lastDecision = string.Format("BLOCKED_DAILY_LOSS ${0:F0}", dailyPnL);
-                return;
-            }
 
             int bestDir = 0;
             double bestScore = 0;
@@ -540,15 +543,21 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (bestDir != 0)
                 CalcWeightedScore(bestType, bestDir);
 
-            // Direction flip penalty: need 10 extra points to reverse direction
-            if (lastTradeDirection != 0 && bestDir != lastTradeDirection)
-                bestScore -= 10;
-
             if (bestScore >= ScoreEntryMin)
             {
-                double atrBuffer = atr14[0] * 0.5;
-                double estStop = bestDir == 1 ? Low[0] - atrBuffer : High[0] + atrBuffer;
-                double potentialLoss = Math.Abs(Close[0] - estStop) * 2;
+                double initialStop;
+                if (bestDir == 1)
+                    initialStop = Low[0];
+                else
+                    initialStop = High[0];
+
+                double stopDist = Math.Abs(Close[0] - initialStop);
+                double atrStop = bestScore >= ScoreHighConfidence ? atr14[0] * 0.75 : atr14[0];
+
+                if (stopDist > atrStop)
+                    initialStop = bestDir == 1 ? Close[0] - atrStop : Close[0] + atrStop;
+
+                double potentialLoss = Math.Abs(Close[0] - initialStop) * 2;
                 if (dailyPnL - potentialLoss < -MaxDailyLoss)
                 {
                     lastDecision = string.Format("BLOCKED_RISK score={0:F1}", bestScore);
@@ -564,7 +573,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     default: signal = "Entry"; break;
                 }
 
-                EnterTrade(bestDir, Close[0], estStop, bestType, bestScore, signal);
+                EnterTrade(bestDir, Close[0], initialStop, bestType, bestScore, signal);
                 lastDecision = string.Format("ENTER {0} {1} score={2:F1}", bestType, bestDir == 1 ? "LONG" : "SHORT", bestScore);
             }
             else if (bestScore >= 40)
@@ -583,16 +592,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void EnterTrade(int direction, double price, double initialStop, EntryType type, double score, string signal)
         {
-            double atrBuffer = atr14[0] * 0.5;
-            if (direction == 1)
-                initialStop = Low[0] - atrBuffer;
-            else
-                initialStop = High[0] + atrBuffer;
-
-            double stopDist = Math.Abs(price - initialStop);
-            double maxStop = score >= ScoreHighConfidence ? atr14[0] * 1.5 : atr14[0] * 2.0;
-            if (stopDist > maxStop)
-                initialStop = direction == 1 ? price - maxStop : price + maxStop;
+            if (direction == 1 && initialStop >= price)
+                initialStop = price - atr14[0] * 0.75;
+            else if (direction == -1 && initialStop <= price)
+                initialStop = price + atr14[0] * 0.75;
 
             entryPrice = price;
             stopPrice = initialStop;
@@ -600,6 +603,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradeState = TradeState.Breathe;
             breatheCount = 0;
             entryScore = score;
+            Array.Copy(lastFactors, entryFactors, 6);
             breatheBarsNeeded = score >= ScoreHighConfidence ? BreatheHigh : BreatheNormal;
             breakevenTarget = score >= ScoreHighConfidence ? BreakevenPtsHigh : BreakevenPtsNormal;
             runningExtreme = direction == 1 ? High[0] : Low[0];
@@ -760,6 +764,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                     dir, lastClosedReason, realEntryPrice, realExitPrice, realPnL, dailyPnL, myTotalPnL, entryScore));
                 lastAction = string.Format("EXIT {0} {1} @{2:F2} pnl=${3:F2} total=${4:F2}", dir, lastClosedReason, realExitPrice, realPnL, myTotalPnL);
 
+                DateTime exitNY = TimeZoneInfo.ConvertTime(time, easternZone);
+                LogTradeCsv(exitNY, "EXIT", realEntryPrice, realExitPrice, realPnL, lastClosedReason);
+
                 if (dailyPnL <= -MaxDailyLoss || dailyPnL >= DailyProfitTarget)
                     dayDone = true;
             }
@@ -767,10 +774,13 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 realEntryPrice = price;
                 entryPrice = price;
+                entryTimeNY = TimeZoneInfo.ConvertTime(time, easternZone);
                 string dir = marketPosition == MarketPosition.Long ? "LONG" : "SHORT";
                 lastAction = string.Format("FILL {0} @{1:F2} stop={2:F2} score={3:F1}", dir, price, stopPrice, entryScore);
                 tradeLog.Add(string.Format("FILL {0} | price={1:F2} stop={2:F2} | sma20={3:F2} sma200={4:F2} spread={5:F2} | score={6:F1} type={7}",
                     dir, price, stopPrice, sma20[0], sma200[0], Math.Abs(sma20[0] - sma200[0]), entryScore, lastEntryType));
+
+                LogTradeCsv(entryTimeNY, "ENTRY", price, 0, 0, "");
             }
         }
 
@@ -788,8 +798,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradeState = TradeState.Flat;
             tradeDirection = 0;
             lastEntryType = EntryType.None;
-            lastTradeDirection = 0;
-            barsSinceLastExit = 99;
             lastDecision = "NEW_DAY";
             lastScoreTend = 0;
             lastScorePull = 0;
@@ -800,8 +808,6 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             lastClosedDirection = tradeDirection;
             lastClosedReason = reason;
-            lastTradeDirection = tradeDirection;
-            barsSinceLastExit = 0;
 
             string fromSignal = activeEntrySignal ?? "";
             if (Position.MarketPosition == MarketPosition.Long)
@@ -814,6 +820,47 @@ namespace NinjaTrader.NinjaScript.Strategies
             activeEntrySignal = null;
 
             Draw.Diamond(this, "Exit" + CurrentBar, true, 0, Close[0], Brushes.Yellow);
+        }
+
+        private void InitCsvLogs()
+        {
+            try
+            {
+                if (!File.Exists(csvLogPath))
+                    File.WriteAllText(csvLogPath, "Date,Time,Action,Direction,EntryType,Score,SpreadScore,BodyScore,AlignScore,WickScore,MomentumScore,ATRScore,EntryPrice,ExitPrice,StopPrice,SMA20,SMA200,Spread,ATR,PnL,DailyPnL,TotalPnL,ExitReason,TradesToday,BreatheWhipsaws\n");
+                if (!File.Exists(csvDailyPath))
+                    File.WriteAllText(csvDailyPath, "Date,DailyPnL,TotalPnL,Trades,BreatheWhipsaws,DayDoneReason\n");
+            }
+            catch {}
+        }
+
+        private void LogTradeCsv(DateTime nyNow, string action, double fillPrice, double exitPrice, double pnl, string exitReason)
+        {
+            try
+            {
+                double[] factors = action == "ENTRY" ? entryFactors : lastFactors;
+                string dir = tradeDirection == 1 ? "LONG" : tradeDirection == -1 ? "SHORT" : (lastClosedDirection == 1 ? "LONG" : "SHORT");
+                string line = string.Format("{0:yyyy-MM-dd},{0:HH:mm},{1},{2},{3},{4:F1},{5:F1},{6:F1},{7:F1},{8:F1},{9:F1},{10:F1},{11:F2},{12:F2},{13:F2},{14:F2},{15:F2},{16:F2},{17:F2},{18:F2},{19:F2},{20:F2},{21},{22},{23}\n",
+                    nyNow, action, dir, lastEntryType, entryScore,
+                    factors[0], factors[1], factors[2], factors[3], factors[4], factors[5],
+                    fillPrice, exitPrice, stopPrice, sma20[0], sma200[0], Math.Abs(sma20[0] - sma200[0]), atr14[0],
+                    pnl, dailyPnL, myTotalPnL, exitReason, tradesToday, breatheWhipsawsToday);
+                File.AppendAllText(csvLogPath, line);
+            }
+            catch {}
+        }
+
+        private void LogDailyCsv(DateTime nyDate, string reason)
+        {
+            try
+            {
+                if (prevDayDate == nyDate) return;
+                string line = string.Format("{0:yyyy-MM-dd},{1:F2},{2:F2},{3},{4},{5}\n",
+                    nyDate, prevDayPnL, myTotalPnL, prevDayTrades, breatheWhipsawsToday, reason);
+                File.AppendAllText(csvDailyPath, line);
+                prevDayDate = nyDate;
+            }
+            catch {}
         }
 
         private void WriteTelemetry(DateTime nyNow)

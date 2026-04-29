@@ -25,6 +25,10 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly object DataLock = new object();
         private static MCPBridgeData latestData = null;
 
+        private static readonly object HistoryLock = new object();
+        private static List<BarData> historyBuffer = new List<BarData>();
+        private static int historyMaxBars = 22000;
+
         private static readonly object PlaybackLock = new object();
         private static DateTime? playbackTargetTime = null;
         private static string playbackStatus = "idle";
@@ -126,6 +130,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                         response = data != null ? data.ToJson() : "{\"error\":\"No data available. Add MCPBridgeIndicator to a chart.\"}";
                         break;
 
+                    case "/history":
+                        response = HandleHistoryRequest(ctx);
+                        break;
+
+                    case "/history/count":
+                        response = string.Format("{{\"totalBars\":{0}}}", GetHistoryCount());
+                        break;
+
                     case "/playback/goto":
                         response = HandlePlaybackGoto(ctx);
                         break;
@@ -196,6 +208,78 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
         }
 
+        private string HandleHistoryRequest(HttpListenerContext ctx)
+        {
+            try
+            {
+                string query = ctx.Request.Url.Query;
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+
+                string fromStr = GetQueryParam(query, "from");
+                string toStr = GetQueryParam(query, "to");
+                string countStr = GetQueryParam(query, "count");
+                string sessionOnly = GetQueryParam(query, "session");
+
+                List<BarData> bars;
+
+                if (!string.IsNullOrEmpty(fromStr) && !string.IsNullOrEmpty(toStr))
+                {
+                    DateTime from, to;
+                    if (!DateTime.TryParse(fromStr, inv, System.Globalization.DateTimeStyles.None, out from) ||
+                        !DateTime.TryParse(toStr, inv, System.Globalization.DateTimeStyles.None, out to))
+                        return "{\"error\":\"Invalid date format. Use yyyy-MM-dd or yyyy-MM-dd HH:mm\"}";
+                    bars = GetHistoryByDate(from, to);
+                }
+                else
+                {
+                    int count = 750;
+                    if (!string.IsNullOrEmpty(countStr))
+                        int.TryParse(countStr, out count);
+                    if (count > historyMaxBars) count = historyMaxBars;
+                    bars = GetHistory(count);
+                }
+
+                if (!string.IsNullOrEmpty(sessionOnly) && sessionOnly == "1")
+                {
+                    var eastZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+                    bars = bars.Where(b =>
+                    {
+                        var ny = TimeZoneInfo.ConvertTime(b.Time, eastZone);
+                        return ny.Hour >= 9 && ny.Hour < 16 && !(ny.Hour == 9 && ny.Minute < 30);
+                    }).ToList();
+                }
+
+                var sb = new StringBuilder(bars.Count * 120 + 100);
+                sb.AppendFormat("{{\"totalBars\":{0},\"returnedBars\":{1},\"bars\":[", GetHistoryCount(), bars.Count);
+                for (int i = 0; i < bars.Count; i++)
+                {
+                    if (i > 0) sb.Append(",");
+                    var b = bars[i];
+                    sb.AppendFormat(inv, "{{\"time\":\"{0:yyyy-MM-dd HH:mm}\",\"o\":{1},\"h\":{2},\"l\":{3},\"c\":{4},\"v\":{5},\"sma20\":{6},\"sma200\":{7}}}",
+                        b.Time, b.Open.ToString("F2", inv), b.High.ToString("F2", inv), b.Low.ToString("F2", inv),
+                        b.Close.ToString("F2", inv), b.Volume.ToString("F0", inv), b.SMA20.ToString("F2", inv), b.SMA200.ToString("F2", inv));
+                }
+                sb.Append("]}");
+                return sb.ToString();
+            }
+            catch (Exception ex)
+            {
+                return string.Format("{{\"error\":\"{0}\"}}", ex.Message.Replace("\"", "\\\""));
+            }
+        }
+
+        private string GetQueryParam(string query, string key)
+        {
+            if (string.IsNullOrEmpty(query)) return null;
+            string search = key + "=";
+            int idx = query.IndexOf(search, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) return null;
+            int start = idx + search.Length;
+            int end = query.IndexOf('&', start);
+            if (end < 0) end = query.Length;
+            return Uri.UnescapeDataString(query.Substring(start, end - start));
+        }
+
         private string HandlePlaybackGoto(HttpListenerContext ctx)
         {
             if (ctx.Request.HttpMethod != "POST")
@@ -248,6 +332,49 @@ namespace NinjaTrader.NinjaScript.AddOns
         public static void UpdateData(MCPBridgeData data)
         {
             lock (DataLock) { latestData = data; }
+        }
+
+        public static void AppendBar(BarData bar, int maxBars)
+        {
+            lock (HistoryLock)
+            {
+                if (historyBuffer.Count > 0 && historyBuffer[historyBuffer.Count - 1].Time == bar.Time)
+                    historyBuffer[historyBuffer.Count - 1] = bar;
+                else
+                    historyBuffer.Add(bar);
+
+                historyMaxBars = maxBars;
+                while (historyBuffer.Count > historyMaxBars)
+                    historyBuffer.RemoveAt(0);
+            }
+        }
+
+        public static List<BarData> GetHistory(int count)
+        {
+            lock (HistoryLock)
+            {
+                int n = Math.Min(count, historyBuffer.Count);
+                return historyBuffer.GetRange(historyBuffer.Count - n, n);
+            }
+        }
+
+        public static List<BarData> GetHistoryByDate(DateTime from, DateTime to)
+        {
+            lock (HistoryLock)
+            {
+                var result = new List<BarData>();
+                for (int i = 0; i < historyBuffer.Count; i++)
+                {
+                    if (historyBuffer[i].Time >= from && historyBuffer[i].Time <= to)
+                        result.Add(historyBuffer[i]);
+                }
+                return result;
+            }
+        }
+
+        public static int GetHistoryCount()
+        {
+            lock (HistoryLock) { return historyBuffer.Count; }
         }
 
         public static DateTime? GetPlaybackTarget()
