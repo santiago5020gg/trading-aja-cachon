@@ -185,6 +185,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private string lastClosedReason;
         private bool pnlTrackingStarted;
         private string activeEntrySignal;
+        private bool isChoppyMode;
 
         private string telemetryPath = @"C:\temp\mnq_bot_status.json";
         private string botHistoryDir = @"C:\Users\santiago.burgos\OneDrive - Perficient, Inc\Documents\perficient\AI path lean\trading 7\bot\history";
@@ -520,7 +521,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void EvaluateEntry(DateTime nyNow)
         {
-            if (breatheWhipsawsToday >= MaxBreatheWhipsaws) return;
+            double scoreMin = ScoreEntryMin;
+            if (isChoppyMode)
+                scoreMin = 80;
 
             int bestDir = 0;
             double bestScore = 0;
@@ -534,16 +537,40 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 if (dir == 1) { lastScoreTend = sTend; lastScorePull = sPull; lastScoreRupt = sRupt; }
 
-                if (sTend > bestScore) { bestScore = sTend; bestDir = dir; bestType = EntryType.Tendencia; }
-                if (sPull > bestScore) { bestScore = sPull; bestDir = dir; bestType = EntryType.Pullback; }
+                if (!isChoppyMode)
+                {
+                    if (sTend > bestScore) { bestScore = sTend; bestDir = dir; bestType = EntryType.Tendencia; }
+                    if (sPull > bestScore) { bestScore = sPull; bestDir = dir; bestType = EntryType.Pullback; }
+                }
                 if (sRupt > bestScore) { bestScore = sRupt; bestDir = dir; bestType = EntryType.Ruptura; }
+            }
+
+            if (isChoppyMode && bestType == EntryType.Ruptura && bestScore >= scoreMin)
+            {
+                double recentHigh = double.MinValue;
+                double recentLow = double.MaxValue;
+                int lookback = Math.Min(10, CurrentBar);
+                for (int i = 1; i <= lookback; i++)
+                {
+                    if (High[i] > recentHigh) recentHigh = High[i];
+                    if (Low[i] < recentLow) recentLow = Low[i];
+                }
+
+                double rangeSize = recentHigh - recentLow;
+                bool breakout = (bestDir == 1 && Close[0] > recentHigh) || (bestDir == -1 && Close[0] < recentLow);
+
+                if (!breakout)
+                {
+                    lastDecision = string.Format("CHOPPY_WAIT range={0:F1} score={1:F1}", rangeSize, bestScore);
+                    return;
+                }
             }
 
             // Recalculate factors for best direction for telemetry
             if (bestDir != 0)
                 CalcWeightedScore(bestType, bestDir);
 
-            if (bestScore >= ScoreEntryMin)
+            if (bestScore >= scoreMin)
             {
                 double initialStop;
                 if (bestDir == 1)
@@ -558,6 +585,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                     initialStop = bestDir == 1 ? Close[0] - atrStop : Close[0] + atrStop;
 
                 double potentialLoss = Math.Abs(Close[0] - initialStop) * 2;
+                double maxRiskPerTrade = MaxDailyLoss / 2;
+                if (potentialLoss > maxRiskPerTrade)
+                    initialStop = bestDir == 1 ? Close[0] - (maxRiskPerTrade / 2) : Close[0] + (maxRiskPerTrade / 2);
+                potentialLoss = Math.Abs(Close[0] - initialStop) * 2;
+
                 if (dailyPnL - potentialLoss < -MaxDailyLoss)
                 {
                     lastDecision = string.Format("BLOCKED_RISK score={0:F1}", bestScore);
@@ -612,6 +644,15 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradesToday++;
             activeEntrySignal = signal;
 
+            double hardStop = MaxDailyLoss / 2;
+            double hardStopPrice = direction == 1 ? price - (hardStop / 2) : price + (hardStop / 2);
+            if (direction == 1 && initialStop < hardStopPrice)
+                hardStopPrice = initialStop;
+            else if (direction == -1 && initialStop > hardStopPrice)
+                hardStopPrice = initialStop;
+
+            SetStopLoss(signal, CalculationMode.Price, hardStopPrice, false);
+
             if (direction == 1)
                 EnterLong(1, signal);
             else
@@ -644,10 +685,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                     breatheWhipsawsToday++;
                     FlattenPosition("BreatheWhipsaw");
 
-                    if (breatheWhipsawsToday >= MaxBreatheWhipsaws)
-                        dayDone = true;
+                    if (breatheWhipsawsToday >= MaxBreatheWhipsaws && !isChoppyMode)
+                        isChoppyMode = true;
 
-                    lastDecision = string.Format("WHIPSAW breathe #{0}", breatheWhipsawsToday);
+                    lastDecision = string.Format("WHIPSAW breathe #{0}{1}", breatheWhipsawsToday, isChoppyMode ? " CHOPPY" : "");
                     return;
                 }
 
@@ -655,7 +696,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (tradeDirection == -1 && Low[0] < runningExtreme) runningExtreme = Low[0];
 
                 if (breatheCount >= breatheBarsNeeded)
+                {
                     tradeState = TradeState.Trailing;
+                    if (isChoppyMode)
+                        isChoppyMode = false;
+                }
 
                 lastDecision = string.Format("BREATHE {0}/{1}", breatheCount, breatheBarsNeeded);
                 return;
@@ -742,12 +787,21 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             string orderName = execution.Order.Name;
             bool isOurEntry = orderName.StartsWith("Tend") || orderName.StartsWith("Rupt") || orderName.StartsWith("Pull");
-            bool isOurExit = orderName.StartsWith("X_");
+            bool isOurExit = orderName.StartsWith("X_") || orderName == "Stop loss";
 
             if (!pnlTrackingStarted) return;
 
             if (isOurExit)
             {
+                if (orderName == "Stop loss")
+                {
+                    lastClosedDirection = tradeDirection;
+                    lastClosedReason = "HardStop";
+                    tradeState = TradeState.Flat;
+                    tradeDirection = 0;
+                    activeEntrySignal = null;
+                }
+
                 double realExitPrice = price;
                 double realPnL = 0;
                 string dir = lastClosedDirection == 1 ? "LONG" : "SHORT";
@@ -802,6 +856,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             lastScoreTend = 0;
             lastScorePull = 0;
             lastScoreRupt = 0;
+            isChoppyMode = false;
         }
 
         private void FlattenPosition(string reason)
