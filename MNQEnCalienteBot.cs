@@ -191,6 +191,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private string botHistoryDir = @"C:\Users\santiago.burgos\OneDrive - Perficient, Inc\Documents\perficient\AI path lean\trading 7\bot\history";
         private string csvLogPath;
         private string csvDailyPath;
+        private string csvBarLogPath;
         private List<string> tradeLog;
         private string lastAction;
 
@@ -293,6 +294,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 try { Directory.CreateDirectory(botHistoryDir); } catch {}
                 csvLogPath = Path.Combine(botHistoryDir, "mnq_trades_log.csv");
                 csvDailyPath = Path.Combine(botHistoryDir, "mnq_daily_log.csv");
+                csvBarLogPath = Path.Combine(botHistoryDir, "mnq_bar_log.csv");
                 InitCsvLogs();
             }
             else if (State == State.Realtime)
@@ -312,6 +314,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             DateTime nyNow = TimeZoneInfo.ConvertTime(Time[0], easternZone);
             DateTime nyDate = nyNow.Date;
+
+            LogBarCsv(nyNow);
 
             if (nyDate != lastResetDate)
             {
@@ -885,6 +889,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                     File.WriteAllText(csvLogPath, "Date,Time,Action,Direction,EntryType,Score,SpreadScore,BodyScore,AlignScore,WickScore,MomentumScore,ATRScore,EntryPrice,ExitPrice,StopPrice,SMA20,SMA200,Spread,ATR,PnL,DailyPnL,TotalPnL,ExitReason,TradesToday,BreatheWhipsaws\n");
                 if (!File.Exists(csvDailyPath))
                     File.WriteAllText(csvDailyPath, "Date,DailyPnL,TotalPnL,Trades,BreatheWhipsaws,DayDoneReason\n");
+                if (!File.Exists(csvBarLogPath))
+                    File.WriteAllText(csvBarLogPath, "Date,Time,Open,High,Low,Close,Volume,SMA20,SMA200,Spread,ATR,PriceVsSMA20,PriceVsSMA200,Position,TradeState,EntryType,Score,DailyPnL,TotalPnL,TradesToday,Whipsaws,ChoppyMode,Decision\n");
             }
             catch {}
         }
@@ -914,6 +920,27 @@ namespace NinjaTrader.NinjaScript.Strategies
                     nyDate, prevDayPnL, myTotalPnL, prevDayTrades, breatheWhipsawsToday, reason);
                 File.AppendAllText(csvDailyPath, line);
                 prevDayDate = nyDate;
+            }
+            catch {}
+        }
+
+        private void LogBarCsv(DateTime nyNow)
+        {
+            try
+            {
+                string pos = tradeDirection == 1 ? "LONG" : tradeDirection == -1 ? "SHORT" : "FLAT";
+                string state = tradeState.ToString();
+                string etype = lastEntryType == EntryType.None ? "" : lastEntryType.ToString();
+                string vsSma20 = Close[0] >= sma20[0] ? "ENCIMA" : "DEBAJO";
+                string vsSma200 = Close[0] >= sma200[0] ? "ENCIMA" : "DEBAJO";
+                double score = tradeState != TradeState.Flat ? entryScore : 0;
+                string line = string.Format("{0:yyyy-MM-dd},{0:HH:mm},{1:F2},{2:F2},{3:F2},{4:F2},{5},{6:F2},{7:F2},{8:F2},{9:F2},{10},{11},{12},{13},{14},{15:F1},{16:F2},{17:F2},{18},{19},{20},{21}\n",
+                    nyNow, Open[0], High[0], Low[0], Close[0], (long)Volume[0],
+                    sma20[0], sma200[0], Math.Abs(sma20[0] - sma200[0]), atr14[0],
+                    vsSma20, vsSma200, pos, state, etype, score,
+                    dailyPnL, myTotalPnL, tradesToday, breatheWhipsawsToday,
+                    isChoppyMode ? "YES" : "NO", lastDecision);
+                File.AppendAllText(csvBarLogPath, line);
             }
             catch {}
         }
