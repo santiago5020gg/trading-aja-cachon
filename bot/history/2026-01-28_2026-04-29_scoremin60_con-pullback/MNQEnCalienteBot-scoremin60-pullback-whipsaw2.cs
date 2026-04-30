@@ -233,7 +233,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 IsInstantiatedOnEachOptimizationIteration = true;
                 IsOverlay = true;
 
-                ScoreEntryMin = 75;
+                ScoreEntryMin = 60;
                 ScoreHighConfidence = 80;
                 ScoreScalingMin = 70;
 
@@ -260,7 +260,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 MaxDailyLoss = 270;
                 DailyProfitTarget = 270;
-                MaxBreatheWhipsaws = 1;
+                MaxBreatheWhipsaws = 2;
                 BreakevenPtsHigh = 50;
                 BreakevenPtsNormal = 67.5;
                 BreatheHigh = 2;
@@ -525,26 +525,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void EvaluateEntry(DateTime nyNow)
         {
-            if (tradesToday >= 8)
-            {
-                lastDecision = "MAX_TRADES_8";
-                return;
-            }
-
-            double absSpread = Math.Abs(sma20[0] - sma200[0]);
-            if (absSpread < 30)
-            {
-                lastDecision = string.Format("LOW_SPREAD {0:F1}", absSpread);
-                return;
-            }
-
             double scoreMin = ScoreEntryMin;
             if (isChoppyMode)
-                scoreMin = 85;
-
-            bool isOpening = nyNow.Hour == 9 && nyNow.Minute >= 32 && nyNow.Minute <= 36;
-            if (isOpening && scoreMin < 90)
-                scoreMin = 90;
+                scoreMin = 80;
 
             int bestDir = 0;
             double bestScore = 0;
@@ -553,13 +536,15 @@ namespace NinjaTrader.NinjaScript.Strategies
             foreach (int dir in new int[] { 1, -1 })
             {
                 double sTend = CalcWeightedScore(EntryType.Tendencia, dir);
+                double sPull = CalcWeightedScore(EntryType.Pullback, dir);
                 double sRupt = CalcWeightedScore(EntryType.Ruptura, dir);
 
-                if (dir == 1) { lastScoreTend = sTend; lastScorePull = 0; lastScoreRupt = sRupt; }
+                if (dir == 1) { lastScoreTend = sTend; lastScorePull = sPull; lastScoreRupt = sRupt; }
 
                 if (!isChoppyMode)
                 {
                     if (sTend > bestScore) { bestScore = sTend; bestDir = dir; bestType = EntryType.Tendencia; }
+                    if (sPull > bestScore) { bestScore = sPull; bestDir = dir; bestType = EntryType.Pullback; }
                 }
                 if (sRupt > bestScore) { bestScore = sRupt; bestDir = dir; bestType = EntryType.Ruptura; }
             }
