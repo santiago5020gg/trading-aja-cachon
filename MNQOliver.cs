@@ -245,8 +245,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         protected override void OnBarUpdate()
         {
             if (BarsInProgress != 0) return;
-            if (CurrentBar < BarsRequiredToTrade)
-                return;
+            if (CurrentBar < BarsRequiredToTrade) return;
+            if (CurrentBars[1] < 20 || CurrentBars[2] < 20 || CurrentBars[3] < 20) return;
 
             DateTime nyNow = TimeZoneInfo.ConvertTime(Time[0], easternZone);
             DateTime nyDate = nyNow.Date;
@@ -589,7 +589,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             double conf = 40;
 
             // +10% EMA20 1H confirms direction
-            if (BarsArray[1] != null && BarsArray[1].Count > 1)
+            if (CurrentBars[1] >= 20)
             {
                 bool h1Confirm = (direction == 1 && Closes[1][0] > ema20_1h[0])
                               || (direction == -1 && Closes[1][0] < ema20_1h[0]);
@@ -597,7 +597,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             // +12% EMA20 2H confirms direction
-            if (BarsArray[2] != null && BarsArray[2].Count > 1)
+            if (CurrentBars[2] >= 20)
             {
                 bool h2Confirm = (direction == 1 && Closes[2][0] > ema20_2h[0])
                               || (direction == -1 && Closes[2][0] < ema20_2h[0]);
@@ -605,7 +605,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             // +15% EMA20 Daily confirms direction
-            if (BarsArray[3] != null && BarsArray[3].Count > 1)
+            if (CurrentBars[3] >= 20)
             {
                 bool dConfirm = (direction == 1 && Closes[3][0] > ema20_d[0])
                              || (direction == -1 && Closes[3][0] < ema20_d[0]);
@@ -627,9 +627,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             // +7% Bonus: all 3 higher TFs aligned
             bool allAligned = false;
-            if (BarsArray[1] != null && BarsArray[1].Count > 1
-                && BarsArray[2] != null && BarsArray[2].Count > 1
-                && BarsArray[3] != null && BarsArray[3].Count > 1)
+            if (CurrentBars[1] >= 20 && CurrentBars[2] >= 20 && CurrentBars[3] >= 20)
             {
                 bool h1 = (direction == 1 && Closes[1][0] > ema20_1h[0])
                         || (direction == -1 && Closes[1][0] < ema20_1h[0]);
