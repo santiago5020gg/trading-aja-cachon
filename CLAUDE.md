@@ -6,7 +6,8 @@ NinjaTrader 8 automated strategy for MNQ (Micro E-mini Nasdaq) futures. Opera co
 
 ## Architecture
 
-- **MNQEnCalienteBot.cs** — La estrategia principal de NinjaTrader. C# targeting NinjaTrader 8 NinjaScript API. Incluye: entradas por tendencia/pullback/ruptura, trailing bar-a-bar, breathe period, breakeven, scaling in, y gestion de riesgo diaria.
+- **MNQEnCalienteBot.cs** — Estrategia v3 (legacy). C# targeting NinjaTrader 8 NinjaScript API. Scoring probabilístico con 29 parámetros. Reemplazada por MNQOliver.
+- **MNQOliver.cs** — Estrategia v4 basada en Oliver Velez price-action + ATR. Usa EMA(20)/SMA(200)/ATR(14), flujo de 8 pasos (SOH→dirección→fase→detonante→entrada→trailing), 11 parámetros (8 walk-forward + 3 fijos). Spec: docs/superpowers/specs/2026-05-01-mnqoliver-design.md
 - **MCPBridge.cs** — AddOn de NinjaTrader. Servidor HTTP (localhost:8500) que expone datos del chart al MCP bridge.
 - **MCPBridgeIndicator.cs** — Indicador de NinjaTrader que va en el chart y alimenta OHLCV + SMA20 + SMA200 al bridge.
 - **mcp-ninjatrader/** — Node.js MCP server que conecta Claude Code a NinjaTrader via HTTP. Se comunica con MCPBridgeIndicator (localhost:8500).
@@ -72,6 +73,7 @@ Estos archivos son una representacion completa de la grafica de 2 minutos. Cualq
 - Edit C# in this repo, then copy to NinjaTrader and recompile
 - Los archivos deben copiarse a `C:\Users\<USUARIO>\OneDrive - Perficient, Inc\Documents\NinjaTrader 8\bin\Custom\`:
   - `MNQEnCalienteBot.cs` → `Strategies/`
+  - `MNQOliver.cs` → `Strategies/`
   - `MCPBridge.cs` → `AddOns/`
   - `MCPBridgeIndicator.cs` → `Indicators/`
 - MCP bridge runs via `node mcp-ninjatrader/index.js` (stdio transport, launched by Claude Code)
