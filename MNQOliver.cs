@@ -66,6 +66,10 @@ namespace NinjaTrader.NinjaScript.Strategies
         [Display(Name = "Breakeven ATR Mult", GroupName = "4. Gestion", Order = 3)]
         public double Breakeven_AtrMult { get; set; }
 
+        [NinjaScriptProperty]
+        [Display(Name = "Modo Log", GroupName = "5. Logging", Order = 1)]
+        public LogMode ModoLog { get; set; }
+
         #endregion
 
         #region Variables
@@ -75,6 +79,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private ATR atr14;
         private SMA atrSma50;
 
+        public enum LogMode { Off, Day, Month }
         private enum TradeState { Flat, Breathe, Trailing }
 
         private TradeState tradeState;
@@ -107,6 +112,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private string telemetryPath = @"C:\temp\mnq_bot_status.json";
         private string botHistoryDir;
+        private string botDayDir;
         private string csvLogPath;
         private string csvDailyPath;
         private string csvBarLogPath;
@@ -152,6 +158,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Stop_AtrMult = 1.5;
                 Trail_AtrBuffer = 0.3;
                 Breakeven_AtrMult = 1.5;
+
+                ModoLog = LogMode.Month;
             }
             else if (State == State.DataLoaded)
             {
@@ -179,12 +187,21 @@ namespace NinjaTrader.NinjaScript.Strategies
                 botHistoryDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                     @"perficient\AI path lean\trading 7\bot\history");
-                try { Directory.CreateDirectory(botHistoryDir); } catch {}
+                if (ModoLog != LogMode.Off)
+                {
+                    string logDir = botHistoryDir;
+                    if (ModoLog == LogMode.Day)
+                    {
+                        botDayDir = Path.Combine(botHistoryDir, "history-day");
+                        logDir = botDayDir;
+                    }
+                    try { Directory.CreateDirectory(logDir); } catch {}
 
-                csvLogPath = Path.Combine(botHistoryDir, "oliver_trades_log.csv");
-                csvDailyPath = Path.Combine(botHistoryDir, "oliver_daily_log.csv");
-                csvBarLogPath = Path.Combine(botHistoryDir, "oliver_bar_log.csv");
-                InitCsvLogs();
+                    csvLogPath = Path.Combine(logDir, "oliver_trades_log.csv");
+                    csvDailyPath = Path.Combine(logDir, "oliver_daily_log.csv");
+                    csvBarLogPath = Path.Combine(logDir, "oliver_bar_log.csv");
+                    InitCsvLogs();
+                }
             }
             else if (State == State.Realtime)
             {
@@ -218,6 +235,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
                 ResetDaily();
                 lastResetDate = nyDate;
+                if (ModoLog == LogMode.Day)
+                    InitCsvLogs();
             }
 
             // Day done — flatten and stop
@@ -750,13 +769,15 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void InitCsvLogs()
         {
+            if (ModoLog == LogMode.Off) return;
             try
             {
-                if (!File.Exists(csvLogPath))
+                bool overwrite = ModoLog == LogMode.Day;
+                if (overwrite || !File.Exists(csvLogPath))
                     File.WriteAllText(csvLogPath, "Date,Time,Action,Direction,EntryType,EntryPrice,ExitPrice,StopPrice,EMA20,SMA200,Spread,ATR,AtrRatio,EmaSlope,BodyPct,RangoATR,PnL,DailyPnL,TotalPnL,ExitReason,TradesToday,DayPhase,MovPhase\n");
-                if (!File.Exists(csvDailyPath))
+                if (overwrite || !File.Exists(csvDailyPath))
                     File.WriteAllText(csvDailyPath, "Date,DailyPnL,TotalPnL,Trades,DayDoneReason\n");
-                if (!File.Exists(csvBarLogPath))
+                if (overwrite || !File.Exists(csvBarLogPath))
                     File.WriteAllText(csvBarLogPath, "Date,Time,Open,High,Low,Close,Volume,EMA20,SMA200,Spread,ATR,AtrRatio,EmaSlope,PriceVsEMA20,PriceVsSMA200,Position,TradeState,DailyPnL,TotalPnL,TradesToday,SOH,Decision\n");
             }
             catch {}
@@ -782,6 +803,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void LogTradeCsv(DateTime nyNow, string action, double fillPrice, double exitPrice, double pnl, string exitReason)
         {
+            if (ModoLog == LogMode.Off) return;
             try
             {
                 string dir = tradeDirection != 0
@@ -802,6 +824,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void LogDailyCsv(DateTime nyDate, string reason)
         {
+            if (ModoLog == LogMode.Off) return;
             try
             {
                 string line = string.Format("{0:yyyy-MM-dd},{1:F2},{2:F2},{3},{4}\n",
@@ -813,6 +836,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void LogBarCsv(DateTime nyNow)
         {
+            if (ModoLog == LogMode.Off) return;
             try
             {
                 string pos = tradeDirection == 1 ? "LONG" : tradeDirection == -1 ? "SHORT" : "FLAT";
