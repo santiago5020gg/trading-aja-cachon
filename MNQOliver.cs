@@ -671,6 +671,66 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         #endregion
 
+        #region OnExecutionUpdate
+
+        protected override void OnExecutionUpdate(Execution execution, string executionId, double price, int quantity, MarketPosition marketPosition, string orderId, DateTime time)
+        {
+            if (execution.Order == null) return;
+            if (!pnlTrackingStarted) return;
+
+            string orderName = execution.Order.Name;
+            bool isEntry = orderName == "OliverL" || orderName == "OliverS";
+            bool isExit = orderName.StartsWith("X_") || orderName == "Stop loss";
+
+            if (isExit)
+            {
+                if (orderName == "Stop loss")
+                {
+                    lastClosedDirection = tradeDirection;
+                    lastClosedReason = "HardStop";
+                    tradeState = TradeState.Flat;
+                    tradeDirection = 0;
+                    activeEntrySignal = null;
+                }
+
+                double realExitPrice = price;
+                double realPnL = 0;
+                string dir = lastClosedDirection == 1 ? "LONG" : "SHORT";
+
+                if (lastClosedDirection == 1)
+                    realPnL = (realExitPrice - realEntryPrice) * 2;
+                else if (lastClosedDirection == -1)
+                    realPnL = (realEntryPrice - realExitPrice) * 2;
+
+                dailyPnL += realPnL;
+                totalPnL += realPnL;
+
+                tradeLog.Add(string.Format("EXIT {0} | reason={1} | entry={2:F2} exit={3:F2} pnl=${4:F2} | dailyPnL=${5:F2}",
+                    dir, lastClosedReason, realEntryPrice, realExitPrice, realPnL, dailyPnL));
+                lastAction = string.Format("EXIT {0} {1} @{2:F2} pnl=${3:F2}", dir, lastClosedReason, realExitPrice, realPnL);
+
+                DateTime exitNY = TimeZoneInfo.ConvertTime(time, easternZone);
+                LogTradeCsv(exitNY, "EXIT", realEntryPrice, realExitPrice, realPnL, lastClosedReason);
+
+                if (dailyPnL <= -MaxDailyLoss || dailyPnL >= DailyProfitTarget)
+                    dayDone = true;
+            }
+            else if (isEntry)
+            {
+                realEntryPrice = price;
+                entryPrice = price;
+                entryTimeNY = TimeZoneInfo.ConvertTime(time, easternZone);
+                string dir = marketPosition == MarketPosition.Long ? "LONG" : "SHORT";
+                lastAction = string.Format("FILL {0} @{1:F2} stop={2:F2}", dir, price, stopPrice);
+                tradeLog.Add(string.Format("FILL {0} | price={1:F2} stop={2:F2} | ema20={3:F2} sma200={4:F2} atr={5:F2}",
+                    dir, price, stopPrice, ema20[0], sma200[0], atr14[0]));
+
+                LogTradeCsv(entryTimeNY, "ENTRY", price, 0, 0, "");
+            }
+        }
+
+        #endregion
+
         #region Helpers
 
         private void ResetDaily()
