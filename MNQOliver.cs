@@ -316,6 +316,246 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         #endregion
 
+        #region Pasos 1-6 — Entry Evaluation
+
+        private void EvaluateEntry(DateTime nyNow)
+        {
+            // Paso 1: SOH filter
+            if (!CheckSOH())
+                return;
+
+            // Paso 2: Direction
+            int direction = GetDirection();
+            if (direction == 0)
+            {
+                lastDecision = "NO_DIRECTION";
+                return;
+            }
+
+            // Paso 3: Movement phase
+            string movPhase = GetMovementPhase();
+            if (movPhase == "MADURA")
+            {
+                lastDecision = string.Format("FASE_MADURA spread/atr={0:F2}", Math.Abs(ema20[0] - sma200[0]) / atr14[0]);
+                return;
+            }
+
+            // Paso 4: Day phase
+            int dayPhase = GetDayPhase(nyNow);
+            if (dayPhase == 2)
+            {
+                lastDecision = "FASE2_SOH";
+                return;
+            }
+            if (dayPhase == 1 && tradesPhase1 >= 2)
+            {
+                lastDecision = "FASE1_MAX_2";
+                return;
+            }
+            if (dayPhase == 3 && tradesPhase3 >= 1)
+            {
+                lastDecision = "FASE3_MAX_1";
+                return;
+            }
+
+            // Paso 5: Detonante or RBI/GBI
+            string entryType = CheckDetonante(direction);
+            if (entryType == "NONE")
+            {
+                lastDecision = string.Format("NO_DETONANTE dir={0} bodyPct={1:F2} rangoATR={2:F2}",
+                    direction == 1 ? "LONG" : "SHORT",
+                    GetBodyPct(), GetRangoATR());
+                return;
+            }
+
+            // Paso 6: Enter trade
+            double currentATR = atr14[0];
+            double initialStop;
+            if (direction == 1)
+                initialStop = Close[0] - (Stop_AtrMult * currentATR);
+            else
+                initialStop = Close[0] + (Stop_AtrMult * currentATR);
+
+            double potentialLoss = Math.Abs(Close[0] - initialStop) * 2;
+            if (dailyPnL - potentialLoss < -MaxDailyLoss)
+            {
+                lastDecision = string.Format("BLOCKED_RISK potLoss={0:F2}", potentialLoss);
+                return;
+            }
+
+            string signal = direction == 1 ? "OliverL" : "OliverS";
+            EnterNewTrade(direction, initialStop, entryType, signal, dayPhase);
+
+            lastDecision = string.Format("ENTER {0} {1} phase={2} movPhase={3}",
+                entryType, direction == 1 ? "LONG" : "SHORT",
+                dayPhase, movPhase);
+        }
+
+        #endregion
+
+        #region Paso 1 — SOH
+
+        private bool CheckSOH()
+        {
+            if (atrSma50[0] <= 0) return true;
+
+            double atrRatio = atr14[0] / atrSma50[0];
+            double emaSlope = Math.Abs(ema20[0] - ema20[Math.Min(10, CurrentBar)]);
+
+            bool lowATR = atrRatio < SOH_AtrRatio;
+            bool flatEMA = emaSlope < SOH_EmaSlopeMin;
+
+            if (lowATR && flatEMA)
+            {
+                if (CheckBreakoutFromSOH(atrRatio))
+                {
+                    isSOH = false;
+                    return true;
+                }
+
+                isSOH = true;
+                lastDecision = string.Format("SOH atrR={0:F2} slope={1:F1}", atrRatio, emaSlope);
+                return false;
+            }
+
+            isSOH = false;
+            return true;
+        }
+
+        private bool CheckBreakoutFromSOH(double atrRatio)
+        {
+            if (atrRatio < 1.0) return false;
+
+            int lookback = Math.Min(20, CurrentBar);
+            double recentHigh = double.MinValue;
+            double recentLow = double.MaxValue;
+            for (int i = 1; i <= lookback; i++)
+            {
+                if (High[i] > recentHigh) recentHigh = High[i];
+                if (Low[i] < recentLow) recentLow = Low[i];
+            }
+
+            return Close[0] > recentHigh || Close[0] < recentLow;
+        }
+
+        #endregion
+
+        #region Paso 2 — Direction
+
+        private int GetDirection()
+        {
+            double price = Close[0];
+            double ema = ema20[0];
+
+            if (price > ema) return 1;
+            if (price < ema) return -1;
+            return 0;
+        }
+
+        #endregion
+
+        #region Paso 3 — Movement Phase
+
+        private string GetMovementPhase()
+        {
+            if (atr14[0] <= 0) return "TEMPRANA";
+
+            double spread = Math.Abs(ema20[0] - sma200[0]);
+            double spreadNorm = spread / atr14[0];
+
+            if (spreadNorm > FaseMadura_SpreadATR) return "MADURA";
+            if (spreadNorm > 1.5) return "MEDIA";
+            return "TEMPRANA";
+        }
+
+        #endregion
+
+        #region Paso 4 — Day Phase
+
+        private int GetDayPhase(DateTime nyNow)
+        {
+            int hour = nyNow.Hour;
+            int min = nyNow.Minute;
+            double timeDecimal = hour + min / 60.0;
+
+            if (timeDecimal < 11.25) return 1;
+            if (timeDecimal < 14.25) return 2;
+            return 3;
+        }
+
+        #endregion
+
+        #region Paso 5 — Detonante
+
+        private string CheckDetonante(int direction)
+        {
+            double bodyPct = GetBodyPct();
+            double rangoATR = GetRangoATR();
+
+            bool isDetonante = bodyPct >= Detonante_BodyPct && rangoATR >= Detonante_RangoATR;
+
+            bool candleMatchesDir = (direction == 1 && Close[0] > Open[0])
+                                 || (direction == -1 && Close[0] < Open[0]);
+
+            if (isDetonante && candleMatchesDir)
+                return "DETONANTE";
+
+            if (CurrentBar < 2) return "NONE";
+
+            if (direction == 1 && Close[0] > High[1] && Close[1] < Open[1])
+                return "RBI";
+
+            if (direction == -1 && Close[0] < Low[1] && Close[1] > Open[1])
+                return "GBI";
+
+            return "NONE";
+        }
+
+        private double GetBodyPct()
+        {
+            double range = High[0] - Low[0];
+            if (range <= 0) return 0;
+            return Math.Abs(Close[0] - Open[0]) / range;
+        }
+
+        private double GetRangoATR()
+        {
+            if (atr14[0] <= 0) return 0;
+            return (High[0] - Low[0]) / atr14[0];
+        }
+
+        #endregion
+
+        #region Paso 6 — Enter Trade
+
+        private void EnterNewTrade(int direction, double initialStop, string entryType, string signal, int dayPhase)
+        {
+            entryPrice = Close[0];
+            stopPrice = initialStop;
+            tradeDirection = direction;
+            tradeState = TradeState.Breathe;
+            breatheCount = 0;
+            breakEvenHit = false;
+            tradesToday++;
+            activeEntrySignal = signal;
+
+            if (dayPhase == 1) tradesPhase1++;
+            if (dayPhase == 3) tradesPhase3++;
+
+            SetStopLoss(signal, CalculationMode.Price, initialStop, false);
+
+            if (direction == 1)
+                EnterLong(1, signal);
+            else
+                EnterShort(1, signal);
+
+            Draw.ArrowUp(this, "Entry" + CurrentBar, true, 0,
+                direction == 1 ? Low[0] - 5 : High[0] + 5,
+                direction == 1 ? Brushes.Lime : Brushes.Red);
+        }
+
+        #endregion
+
         #region Helpers
 
         private void ResetDaily()
@@ -365,12 +605,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             Draw.Diamond(this, "Exit" + CurrentBar, true, 0, Close[0], Brushes.Yellow);
         }
 
-        private void EvaluateEntry(DateTime nyNow)
-        {
-            lastDecision = "EVAL_NOT_IMPLEMENTED";
-        }
-
-        private void ManageTrade(DateTime nyNow)
+private void ManageTrade(DateTime nyNow)
         {
             lastDecision = "MANAGE_NOT_IMPLEMENTED";
         }
