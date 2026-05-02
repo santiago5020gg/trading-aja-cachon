@@ -47,6 +47,10 @@ namespace NinjaTrader.NinjaScript.Strategies
         public double FaseMadura_SpreadATR { get; set; }
 
         [NinjaScriptProperty]
+        [Display(Name = "Min Confidence %", GroupName = "2. Filtros", Order = 4)]
+        public double MinConfidence { get; set; }
+
+        [NinjaScriptProperty]
         [Display(Name = "Detonante Body%", GroupName = "3. Entrada", Order = 1)]
         public double Detonante_BodyPct { get; set; }
 
@@ -78,6 +82,16 @@ namespace NinjaTrader.NinjaScript.Strategies
         private SMA sma200;
         private ATR atr14;
         private SMA atrSma50;
+
+        private EMA ema20_1h;
+        private SMA sma200_1h;
+        private EMA ema20_2h;
+        private SMA sma200_2h;
+        private EMA ema20_d;
+        private SMA sma200_d;
+        private SMA volSma20;
+
+        private double lastConfidence;
 
         public enum LogMode { Off, Day, Month }
         private enum TradeState { Flat, Breathe, Trailing }
@@ -155,6 +169,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 FaseMadura_SpreadATR = 3.0;
                 Detonante_BodyPct = 0.65;
                 Detonante_RangoATR = 1.0;
+                MinConfidence = 65;
                 Stop_AtrMult = 1.5;
                 Trail_AtrBuffer = 0.3;
                 Breakeven_AtrMult = 1.5;
@@ -163,10 +178,22 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             else if (State == State.DataLoaded)
             {
+                AddDataSeries(BarsPeriodType.Minute, 60);
+                AddDataSeries(BarsPeriodType.Minute, 120);
+                AddDataSeries(BarsPeriodType.Day, 1);
+
                 ema20 = EMA(20);
                 sma200 = SMA(200);
                 atr14 = ATR(14);
                 atrSma50 = SMA(atr14, 50);
+                volSma20 = SMA(Volume, 20);
+
+                ema20_1h = EMA(BarsArray[1], 20);
+                sma200_1h = SMA(BarsArray[1], 200);
+                ema20_2h = EMA(BarsArray[2], 20);
+                sma200_2h = SMA(BarsArray[2], 200);
+                ema20_d = EMA(BarsArray[3], 20);
+                sma200_d = SMA(BarsArray[3], 200);
 
                 ema20.Plots[0].Brush = Brushes.DodgerBlue;
                 ema20.Plots[0].Width = 2;
@@ -215,6 +242,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         protected override void OnBarUpdate()
         {
+            if (BarsInProgress != 0) return;
             if (CurrentBar < BarsRequiredToTrade)
                 return;
 
@@ -339,7 +367,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void EvaluateEntry(DateTime nyNow)
         {
-            // Paso 1: SOH filter
+            // Paso 1: SOH filter (hard block — no confidence can override)
             if (!CheckSOH())
                 return;
 
@@ -351,15 +379,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            // Paso 3: Movement phase
+            // Paso 3: Movement phase (now soft — feeds into confidence)
             string movPhase = GetMovementPhase();
-            if (movPhase == "MADURA")
-            {
-                lastDecision = string.Format("FASE_MADURA spread/atr={0:F2}", Math.Abs(ema20[0] - sma200[0]) / atr14[0]);
-                return;
-            }
 
-            // Paso 4: Day phase
+            // Paso 4: Day phase (hard blocks remain)
             int dayPhase = GetDayPhase(nyNow);
             if (dayPhase == 2)
             {
@@ -387,6 +410,18 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
+            // Paso 5.5: Confidence score
+            double confidence = CalcConfidence(direction, movPhase);
+            lastConfidence = confidence;
+
+            if (confidence < MinConfidence)
+            {
+                lastDecision = string.Format("LOW_CONF {0:F0}% < {1}% dir={2} movPhase={3}",
+                    confidence, MinConfidence,
+                    direction == 1 ? "LONG" : "SHORT", movPhase);
+                return;
+            }
+
             // Paso 6: Enter trade
             double currentATR = atr14[0];
             double initialStop;
@@ -405,9 +440,9 @@ namespace NinjaTrader.NinjaScript.Strategies
             string signal = direction == 1 ? "OliverL" : "OliverS";
             EnterNewTrade(direction, initialStop, entryType, signal, dayPhase);
 
-            lastDecision = string.Format("ENTER {0} {1} phase={2} movPhase={3}",
+            lastDecision = string.Format("ENTER {0} {1} conf={2:F0}% phase={3} mov={4}",
                 entryType, direction == 1 ? "LONG" : "SHORT",
-                dayPhase, movPhase);
+                confidence, dayPhase, movPhase);
         }
 
         #endregion
@@ -541,6 +576,72 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (atr14[0] <= 0) return 0;
             return (High[0] - Low[0]) / atr14[0];
+        }
+
+        #endregion
+
+        #region Paso 5.5 — Confidence Score
+
+        private double CalcConfidence(int direction, string movPhase)
+        {
+            double conf = 40;
+
+            // +10% EMA20 1H confirms direction
+            if (BarsArray[1] != null && BarsArray[1].Count > 1)
+            {
+                bool h1Confirm = (direction == 1 && Closes[1][0] > ema20_1h[0])
+                              || (direction == -1 && Closes[1][0] < ema20_1h[0]);
+                if (h1Confirm) conf += 10;
+            }
+
+            // +12% EMA20 2H confirms direction
+            if (BarsArray[2] != null && BarsArray[2].Count > 1)
+            {
+                bool h2Confirm = (direction == 1 && Closes[2][0] > ema20_2h[0])
+                              || (direction == -1 && Closes[2][0] < ema20_2h[0]);
+                if (h2Confirm) conf += 12;
+            }
+
+            // +15% EMA20 Daily confirms direction
+            if (BarsArray[3] != null && BarsArray[3].Count > 1)
+            {
+                bool dConfirm = (direction == 1 && Closes[3][0] > ema20_d[0])
+                             || (direction == -1 && Closes[3][0] < ema20_d[0]);
+                if (dConfirm) conf += 15;
+            }
+
+            // +8% Volume > 2x average (institutional participation)
+            if (volSma20[0] > 0 && Volume[0] > 2 * volSma20[0])
+                conf += 8;
+
+            // +8% Movement phase TEMPRANA (early move)
+            if (movPhase == "TEMPRANA") conf += 8;
+
+            // +5% Body% > 80% (strong conviction candle)
+            if (GetBodyPct() > 0.80) conf += 5;
+
+            // +5% Range/ATR > 1.5 (elephant bar)
+            if (GetRangoATR() > 1.5) conf += 5;
+
+            // +7% Bonus: all 3 higher TFs aligned
+            bool allAligned = false;
+            if (BarsArray[1] != null && BarsArray[1].Count > 1
+                && BarsArray[2] != null && BarsArray[2].Count > 1
+                && BarsArray[3] != null && BarsArray[3].Count > 1)
+            {
+                bool h1 = (direction == 1 && Closes[1][0] > ema20_1h[0])
+                        || (direction == -1 && Closes[1][0] < ema20_1h[0]);
+                bool h2 = (direction == 1 && Closes[2][0] > ema20_2h[0])
+                        || (direction == -1 && Closes[2][0] < ema20_2h[0]);
+                bool d  = (direction == 1 && Closes[3][0] > ema20_d[0])
+                        || (direction == -1 && Closes[3][0] < ema20_d[0]);
+                if (h1 && h2 && d) { conf += 7; allAligned = true; }
+            }
+
+            // -15% FASE_MADURA without multi-TF support
+            if (movPhase == "MADURA" && !allAligned) conf -= 15;
+
+            return Math.Min(conf, 95);
         }
 
         #endregion
@@ -774,11 +875,11 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 bool overwrite = ModoLog == LogMode.Day;
                 if (overwrite || !File.Exists(csvLogPath))
-                    File.WriteAllText(csvLogPath, "Date,Time,Action,Direction,EntryType,EntryPrice,ExitPrice,StopPrice,EMA20,SMA200,Spread,ATR,AtrRatio,EmaSlope,BodyPct,RangoATR,PnL,DailyPnL,TotalPnL,ExitReason,TradesToday,DayPhase,MovPhase\n");
+                    File.WriteAllText(csvLogPath, "Date,Time,Action,Direction,EntryType,EntryPrice,ExitPrice,StopPrice,EMA20,SMA200,Spread,ATR,AtrRatio,EmaSlope,BodyPct,RangoATR,PnL,DailyPnL,TotalPnL,ExitReason,TradesToday,DayPhase,MovPhase,Confidence\n");
                 if (overwrite || !File.Exists(csvDailyPath))
                     File.WriteAllText(csvDailyPath, "Date,DailyPnL,TotalPnL,Trades,DayDoneReason\n");
                 if (overwrite || !File.Exists(csvBarLogPath))
-                    File.WriteAllText(csvBarLogPath, "Date,Time,Open,High,Low,Close,Volume,EMA20,SMA200,Spread,ATR,AtrRatio,EmaSlope,PriceVsEMA20,PriceVsSMA200,Position,TradeState,DailyPnL,TotalPnL,TradesToday,SOH,Decision\n");
+                    File.WriteAllText(csvBarLogPath, "Date,Time,Open,High,Low,Close,Volume,EMA20,SMA200,Spread,ATR,AtrRatio,EmaSlope,PriceVsEMA20,PriceVsSMA200,Position,TradeState,DailyPnL,TotalPnL,TradesToday,SOH,Decision,Confidence\n");
             }
             catch {}
         }
@@ -811,12 +912,12 @@ namespace NinjaTrader.NinjaScript.Strategies
                     : (lastClosedDirection == 1 ? "LONG" : "SHORT");
                 double atrRatio = atrSma50[0] > 0 ? atr14[0] / atrSma50[0] : 0;
                 double emaSlope = Math.Abs(ema20[0] - ema20[Math.Min(10, CurrentBar)]);
-                string line = string.Format("{0:yyyy-MM-dd},{0:HH:mm},{1},{2},{3},{4:F2},{5:F2},{6:F2},{7:F2},{8:F2},{9:F2},{10:F2},{11:F2},{12:F1},{13:F2},{14:F2},{15:F2},{16:F2},{17:F2},{18},{19},{20},{21}\n",
+                string line = string.Format("{0:yyyy-MM-dd},{0:HH:mm},{1},{2},{3},{4:F2},{5:F2},{6:F2},{7:F2},{8:F2},{9:F2},{10:F2},{11:F2},{12:F1},{13:F2},{14:F2},{15:F2},{16:F2},{17:F2},{18},{19},{20},{21},{22:F0}\n",
                     nyNow, action, dir, "", fillPrice, exitPrice, stopPrice,
                     ema20[0], sma200[0], Math.Abs(ema20[0] - sma200[0]), atr14[0],
                     atrRatio, emaSlope, GetBodyPct(), GetRangoATR(),
                     pnl, dailyPnL, totalPnL, exitReason, tradesToday,
-                    GetDayPhase(nyNow), GetMovementPhase());
+                    GetDayPhase(nyNow), GetMovementPhase(), lastConfidence);
                 File.AppendAllText(csvLogPath, line);
             }
             catch {}
@@ -845,11 +946,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 string vsSma = Close[0] >= sma200[0] ? "ENCIMA" : "DEBAJO";
                 double atrRatio = atrSma50[0] > 0 ? atr14[0] / atrSma50[0] : 0;
                 double emaSlope = Math.Abs(ema20[0] - ema20[Math.Min(10, CurrentBar)]);
-                string line = string.Format("{0:yyyy-MM-dd},{0:HH:mm},{1:F2},{2:F2},{3:F2},{4:F2},{5},{6:F2},{7:F2},{8:F2},{9:F2},{10:F2},{11:F1},{12},{13},{14},{15},{16:F2},{17:F2},{18},{19},{20}\n",
+                string line = string.Format("{0:yyyy-MM-dd},{0:HH:mm},{1:F2},{2:F2},{3:F2},{4:F2},{5},{6:F2},{7:F2},{8:F2},{9:F2},{10:F2},{11:F1},{12},{13},{14},{15},{16:F2},{17:F2},{18},{19},{20},{21:F0}\n",
                     nyNow, Open[0], High[0], Low[0], Close[0], (long)Volume[0],
                     ema20[0], sma200[0], Math.Abs(ema20[0] - sma200[0]), atr14[0],
                     atrRatio, emaSlope, vsEma, vsSma, pos, state,
-                    dailyPnL, totalPnL, tradesToday, isSOH ? "YES" : "NO", lastDecision);
+                    dailyPnL, totalPnL, tradesToday, isSOH ? "YES" : "NO", lastDecision, lastConfidence);
                 File.AppendAllText(csvBarLogPath, line);
             }
             catch {}
@@ -897,8 +998,9 @@ namespace NinjaTrader.NinjaScript.Strategies
   ""movementPhase"": ""{19}"",
   ""isSOH"": {20},
   ""dayDone"": {21},
-  ""lastAction"": ""{22}"",
-  ""recentTrades"": [{23}]
+  ""confidence"": {22:F0},
+  ""lastAction"": ""{23}"",
+  ""recentTrades"": [{24}]
 }}",
                     nyNow, Close[0], ema20[0], sma200[0], spread, atr14[0],
                     atrRatio, emaSlope,
@@ -907,6 +1009,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     dailyPnL, totalPnL, tradesToday,
                     GetDayPhase(nyNow), GetMovementPhase(),
                     isSOH ? "true" : "false", dayDone ? "true" : "false",
+                    lastConfidence,
                     lastAction.Replace("\"", "'"), recentTrades);
 
                 File.WriteAllText(telemetryPath, json);
