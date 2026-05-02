@@ -176,12 +176,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 ModoLog = LogMode.Month;
             }
-            else if (State == State.DataLoaded)
+            else if (State == State.Configure)
             {
                 AddDataSeries(BarsPeriodType.Minute, 60);
                 AddDataSeries(BarsPeriodType.Minute, 120);
                 AddDataSeries(BarsPeriodType.Day, 1);
-
+            }
+            else if (State == State.DataLoaded)
+            {
                 ema20 = EMA(20);
                 sma200 = SMA(200);
                 atr14 = ATR(14);
