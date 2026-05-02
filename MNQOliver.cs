@@ -780,10 +780,115 @@ namespace NinjaTrader.NinjaScript.Strategies
             Draw.Diamond(this, "Exit" + CurrentBar, true, 0, Close[0], Brushes.Yellow);
         }
 
-        private void LogBarCsv(DateTime nyNow) {}
-        private void LogDailyCsv(DateTime nyDate, string reason) {}
-        private void LogTradeCsv(DateTime nyNow, string action, double fillPrice, double exitPrice, double pnl, string exitReason) {}
-        private void WriteTelemetry(DateTime nyNow) {}
+        private void LogTradeCsv(DateTime nyNow, string action, double fillPrice, double exitPrice, double pnl, string exitReason)
+        {
+            try
+            {
+                string dir = tradeDirection != 0
+                    ? (tradeDirection == 1 ? "LONG" : "SHORT")
+                    : (lastClosedDirection == 1 ? "LONG" : "SHORT");
+                double atrRatio = atrSma50[0] > 0 ? atr14[0] / atrSma50[0] : 0;
+                double emaSlope = Math.Abs(ema20[0] - ema20[Math.Min(10, CurrentBar)]);
+                string line = string.Format("{0:yyyy-MM-dd},{0:HH:mm},{1},{2},{3},{4:F2},{5:F2},{6:F2},{7:F2},{8:F2},{9:F2},{10:F2},{11:F2},{12:F1},{13:F2},{14:F2},{15:F2},{16:F2},{17:F2},{18},{19},{20},{21}\n",
+                    nyNow, action, dir, "", fillPrice, exitPrice, stopPrice,
+                    ema20[0], sma200[0], Math.Abs(ema20[0] - sma200[0]), atr14[0],
+                    atrRatio, emaSlope, GetBodyPct(), GetRangoATR(),
+                    pnl, dailyPnL, totalPnL, exitReason, tradesToday,
+                    GetDayPhase(nyNow), GetMovementPhase());
+                File.AppendAllText(csvLogPath, line);
+            }
+            catch {}
+        }
+
+        private void LogDailyCsv(DateTime nyDate, string reason)
+        {
+            try
+            {
+                string line = string.Format("{0:yyyy-MM-dd},{1:F2},{2:F2},{3},{4}\n",
+                    nyDate, dailyPnL, totalPnL, tradesToday, reason);
+                File.AppendAllText(csvDailyPath, line);
+            }
+            catch {}
+        }
+
+        private void LogBarCsv(DateTime nyNow)
+        {
+            try
+            {
+                string pos = tradeDirection == 1 ? "LONG" : tradeDirection == -1 ? "SHORT" : "FLAT";
+                string state = tradeState.ToString();
+                string vsEma = Close[0] >= ema20[0] ? "ENCIMA" : "DEBAJO";
+                string vsSma = Close[0] >= sma200[0] ? "ENCIMA" : "DEBAJO";
+                double atrRatio = atrSma50[0] > 0 ? atr14[0] / atrSma50[0] : 0;
+                double emaSlope = Math.Abs(ema20[0] - ema20[Math.Min(10, CurrentBar)]);
+                string line = string.Format("{0:yyyy-MM-dd},{0:HH:mm},{1:F2},{2:F2},{3:F2},{4:F2},{5},{6:F2},{7:F2},{8:F2},{9:F2},{10:F2},{11:F1},{12},{13},{14},{15},{16:F2},{17:F2},{18},{19},{20}\n",
+                    nyNow, Open[0], High[0], Low[0], Close[0], (long)Volume[0],
+                    ema20[0], sma200[0], Math.Abs(ema20[0] - sma200[0]), atr14[0],
+                    atrRatio, emaSlope, vsEma, vsSma, pos, state,
+                    dailyPnL, totalPnL, tradesToday, isSOH ? "YES" : "NO", lastDecision);
+                File.AppendAllText(csvBarLogPath, line);
+            }
+            catch {}
+        }
+
+        private void WriteTelemetry(DateTime nyNow)
+        {
+            try
+            {
+                double spread = Math.Abs(ema20[0] - sma200[0]);
+                string pos = tradeDirection == 1 ? "LONG" : tradeDirection == -1 ? "SHORT" : "FLAT";
+                double unrealizedPts = 0;
+                if (tradeDirection == 1) unrealizedPts = Close[0] - entryPrice;
+                else if (tradeDirection == -1) unrealizedPts = entryPrice - Close[0];
+                double atrRatio = atrSma50[0] > 0 ? atr14[0] / atrSma50[0] : 0;
+                double emaSlope = Math.Abs(ema20[0] - ema20[Math.Min(10, CurrentBar)]);
+
+                string recentTrades = "";
+                int start = Math.Max(0, tradeLog.Count - 10);
+                for (int i = start; i < tradeLog.Count; i++)
+                    recentTrades += (i > start ? "," : "") + "\"" + tradeLog[i].Replace("\"", "'") + "\"";
+
+                string json = string.Format(
+@"{{
+  ""timestamp"": ""{0:yyyy-MM-dd HH:mm}"",
+  ""strategy"": ""MNQOliver"",
+  ""price"": {1:F2},
+  ""ema20"": {2:F2},
+  ""sma200"": {3:F2},
+  ""spread"": {4:F2},
+  ""atr"": {5:F2},
+  ""atrRatio"": {6:F2},
+  ""emaSlope"": {7:F1},
+  ""position"": ""{8}"",
+  ""tradeState"": ""{9}"",
+  ""decision"": ""{10}"",
+  ""entryPrice"": {11:F2},
+  ""stopPrice"": {12:F2},
+  ""unrealizedPts"": {13:F2},
+  ""unrealizedPnL"": {14:F2},
+  ""dailyPnL"": {15:F2},
+  ""totalPnL"": {16:F2},
+  ""tradesToday"": {17},
+  ""dayPhase"": {18},
+  ""movementPhase"": ""{19}"",
+  ""isSOH"": {20},
+  ""dayDone"": {21},
+  ""lastAction"": ""{22}"",
+  ""recentTrades"": [{23}]
+}}",
+                    nyNow, Close[0], ema20[0], sma200[0], spread, atr14[0],
+                    atrRatio, emaSlope,
+                    pos, tradeState, lastDecision,
+                    entryPrice, stopPrice, unrealizedPts, unrealizedPts * 2,
+                    dailyPnL, totalPnL, tradesToday,
+                    GetDayPhase(nyNow), GetMovementPhase(),
+                    isSOH ? "true" : "false", dayDone ? "true" : "false",
+                    lastAction.Replace("\"", "'"), recentTrades);
+
+                File.WriteAllText(telemetryPath, json);
+            }
+            catch {}
+        }
 
         #endregion
     }
