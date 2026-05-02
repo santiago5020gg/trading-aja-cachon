@@ -556,6 +556,121 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         #endregion
 
+        #region Paso 7 — Trade Management
+
+        private void ManageTrade(DateTime nyNow)
+        {
+            if (Position.MarketPosition == MarketPosition.Flat)
+            {
+                tradeState = TradeState.Flat;
+                tradeDirection = 0;
+                return;
+            }
+
+            if (tradeState == TradeState.Breathe)
+            {
+                ManageBreathe();
+                return;
+            }
+
+            if (tradeState == TradeState.Trailing)
+            {
+                ManageTrailing();
+                return;
+            }
+        }
+
+        private void ManageBreathe()
+        {
+            breatheCount++;
+
+            bool whipsaw = false;
+            if (tradeDirection == 1 && Low[0] <= stopPrice) whipsaw = true;
+            if (tradeDirection == -1 && High[0] >= stopPrice) whipsaw = true;
+
+            if (whipsaw)
+            {
+                FlattenPosition("BreatheWhipsaw");
+                lastDecision = string.Format("WHIPSAW breathe bar={0}", breatheCount);
+                return;
+            }
+
+            if (breatheCount >= 2)
+            {
+                tradeState = TradeState.Trailing;
+                lastDecision = "BREATHE_DONE -> TRAILING";
+                return;
+            }
+
+            lastDecision = string.Format("BREATHE {0}/2", breatheCount);
+        }
+
+        private void ManageTrailing()
+        {
+            if (tradeDirection == 1 && Low[0] <= stopPrice)
+            {
+                FlattenPosition("TrailStop");
+                lastDecision = "EXIT TrailStop";
+                return;
+            }
+            if (tradeDirection == -1 && High[0] >= stopPrice)
+            {
+                FlattenPosition("TrailStop");
+                lastDecision = "EXIT TrailStop";
+                return;
+            }
+
+            double currentATR = atr14[0];
+            double buffer = Trail_AtrBuffer * currentATR;
+
+            if (tradeDirection == 1)
+            {
+                double low2bar = Math.Min(Low[0], Low[1]);
+                double newTrail = low2bar - buffer;
+                if (newTrail > stopPrice)
+                    stopPrice = newTrail;
+            }
+            else
+            {
+                double high2bar = Math.Max(High[0], High[1]);
+                double newTrail = high2bar + buffer;
+                if (newTrail < stopPrice)
+                    stopPrice = newTrail;
+            }
+
+            if (!breakEvenHit)
+            {
+                double unrealizedPts = tradeDirection == 1 ? Close[0] - entryPrice : entryPrice - Close[0];
+                double beThreshold = Breakeven_AtrMult * currentATR;
+
+                if (unrealizedPts >= beThreshold)
+                {
+                    double beBuffer = 0.3 * currentATR;
+                    double beLevel = tradeDirection == 1 ? entryPrice + beBuffer : entryPrice - beBuffer;
+
+                    if ((tradeDirection == 1 && beLevel > stopPrice) || (tradeDirection == -1 && beLevel < stopPrice))
+                    {
+                        stopPrice = beLevel;
+                        breakEvenHit = true;
+                    }
+                }
+            }
+
+            double unrealizedPnL = (tradeDirection == 1 ? Close[0] - entryPrice : entryPrice - Close[0]) * 2;
+            if (dailyPnL + unrealizedPnL >= DailyProfitTarget)
+            {
+                FlattenPosition("ProfitTarget");
+                dayDone = true;
+                lastDecision = "EXIT ProfitTarget";
+                return;
+            }
+
+            lastDecision = string.Format("TRAILING stop={0:F2} unrealized={1:F1}pts",
+                stopPrice, tradeDirection == 1 ? Close[0] - entryPrice : entryPrice - Close[0]);
+        }
+
+        #endregion
+
         #region Helpers
 
         private void ResetDaily()
@@ -603,11 +718,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             activeEntrySignal = null;
 
             Draw.Diamond(this, "Exit" + CurrentBar, true, 0, Close[0], Brushes.Yellow);
-        }
-
-private void ManageTrade(DateTime nyNow)
-        {
-            lastDecision = "MANAGE_NOT_IMPLEMENTED";
         }
 
         private void LogBarCsv(DateTime nyNow) {}
