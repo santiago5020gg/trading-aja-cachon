@@ -194,6 +194,128 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         #endregion
 
+        #region OnBarUpdate
+
+        protected override void OnBarUpdate()
+        {
+            if (CurrentBar < BarsRequiredToTrade)
+                return;
+
+            DateTime nyNow = TimeZoneInfo.ConvertTime(Time[0], easternZone);
+            DateTime nyDate = nyNow.Date;
+
+            LogBarCsv(nyNow);
+
+            // Day reset
+            if (nyDate != lastResetDate)
+            {
+                if (lastResetDate != DateTime.MinValue)
+                {
+                    string reason = dayDone
+                        ? (dailyPnL <= -MaxDailyLoss ? "MaxLoss" : dailyPnL >= DailyProfitTarget ? "ProfitTarget" : "MaxTrades")
+                        : "SessionEnd";
+                    LogDailyCsv(lastResetDate, reason);
+                }
+                ResetDaily();
+                lastResetDate = nyDate;
+            }
+
+            // Day done — flatten and stop
+            if (dayDone)
+            {
+                if (Position.MarketPosition != MarketPosition.Flat)
+                    FlattenPosition("DayDone");
+                lastDecision = "DAY_DONE";
+                WriteTelemetry(nyNow);
+                return;
+            }
+
+            // Session hours: 09:32 - 15:50 NY
+            bool beforeSession = nyNow.Hour < 9 || (nyNow.Hour == 9 && nyNow.Minute < 32);
+            bool afterSession = nyNow.Hour >= 16 || (nyNow.Hour == 15 && nyNow.Minute >= 50);
+            if (beforeSession || afterSession)
+            {
+                if (Position.MarketPosition != MarketPosition.Flat)
+                    FlattenPosition("OutOfSession");
+                lastDecision = "OUT_OF_SESSION";
+                WriteTelemetry(nyNow);
+                return;
+            }
+
+            // Wait for 09:32 bar
+            if (!sessionStarted)
+            {
+                if (nyNow.Hour == 9 && nyNow.Minute == 32)
+                    sessionStarted = true;
+                else
+                {
+                    lastDecision = "WAITING_0932";
+                    WriteTelemetry(nyNow);
+                    return;
+                }
+            }
+
+            if (!pnlTrackingStarted)
+                pnlTrackingStarted = true;
+
+            // Paso 0: Day limits
+            if (!CheckDayLimits(nyNow))
+            {
+                WriteTelemetry(nyNow);
+                return;
+            }
+
+            // If in a trade, manage it (Paso 7)
+            if (tradeState != TradeState.Flat)
+            {
+                ManageTrade(nyNow);
+                WriteTelemetry(nyNow);
+                return;
+            }
+
+            // Evaluate new entry (Pasos 1-6)
+            EvaluateEntry(nyNow);
+            WriteTelemetry(nyNow);
+        }
+
+        #endregion
+
+        #region Paso 0 — Day Limits
+
+        private bool CheckDayLimits(DateTime nyNow)
+        {
+            if (dailyPnL <= -MaxDailyLoss)
+            {
+                dayDone = true;
+                lastDecision = "STOP_MAX_LOSS";
+                return false;
+            }
+            if (dailyPnL >= DailyProfitTarget)
+            {
+                dayDone = true;
+                lastDecision = "STOP_PROFIT_TARGET";
+                return false;
+            }
+            if (tradesToday >= MaxTradesPerDay)
+            {
+                dayDone = true;
+                lastDecision = "STOP_MAX_TRADES";
+                return false;
+            }
+
+            // After 15:30 — only manage open trades, no new entries
+            bool lateSession = nyNow.Hour == 15 && nyNow.Minute >= 30;
+            if (lateSession && tradeState == TradeState.Flat)
+            {
+                lastDecision = "LATE_SESSION_NO_NEW";
+                return false;
+            }
+
+            return true;
+        }
+
+        #endregion
+
         #region Helpers
 
         private void ResetDaily()
@@ -224,6 +346,39 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             catch {}
         }
+
+        private void FlattenPosition(string reason)
+        {
+            lastClosedDirection = tradeDirection;
+            lastClosedReason = reason;
+
+            string fromSignal = activeEntrySignal ?? "";
+            if (Position.MarketPosition == MarketPosition.Long)
+                ExitLong("X_" + reason, fromSignal);
+            else if (Position.MarketPosition == MarketPosition.Short)
+                ExitShort("X_" + reason, fromSignal);
+
+            tradeState = TradeState.Flat;
+            tradeDirection = 0;
+            activeEntrySignal = null;
+
+            Draw.Diamond(this, "Exit" + CurrentBar, true, 0, Close[0], Brushes.Yellow);
+        }
+
+        private void EvaluateEntry(DateTime nyNow)
+        {
+            lastDecision = "EVAL_NOT_IMPLEMENTED";
+        }
+
+        private void ManageTrade(DateTime nyNow)
+        {
+            lastDecision = "MANAGE_NOT_IMPLEMENTED";
+        }
+
+        private void LogBarCsv(DateTime nyNow) {}
+        private void LogDailyCsv(DateTime nyDate, string reason) {}
+        private void LogTradeCsv(DateTime nyNow, string action, double fillPrice, double exitPrice, double pnl, string exitReason) {}
+        private void WriteTelemetry(DateTime nyNow) {}
 
         #endregion
     }
