@@ -425,7 +425,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     ? RiesgoMaxDia - perdidaAcumulada
                     : RiesgoMaxPrimerTrade;
 
-            int contratos = (int)Math.Floor(riesgoMax / (stopPts * 0.50));
+            int contratos = (int)Math.Floor(riesgoMax / (stopPts * 2.0));
             if (contratos <= 0)
             {
                 estado = BotState.DiaTerminado;
@@ -448,7 +448,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 stopPuntosPrimerTrade = stopPts;
                 contratosPrimerTrade = contratos;
-                metaDia = stopPts * 0.50 * contratos;
+                metaDia = stopPts * 2.0 * contratos;
             }
 
             string signal = direction == 1 ? "Rango10L" : "Rango10S";
@@ -646,9 +646,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                 double refEntry = isAddOn && addOnEntryPrice > 0 ? addOnEntryPrice : realEntryPrice;
 
                 if (lastClosedDirection == 1)
-                    realPnL = (price - refEntry) * 0.50 * quantity;
+                    realPnL = (price - refEntry) * 2.0 * quantity;
                 else if (lastClosedDirection == -1)
-                    realPnL = (refEntry - price) * 0.50 * quantity;
+                    realPnL = (refEntry - price) * 2.0 * quantity;
 
                 dailyPnL += realPnL;
                 totalPnL += realPnL;
@@ -879,7 +879,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     rangoLow == double.MaxValue ? 0 : rangoLow,
                     rangoPuntos, pos, estado, lastDecision,
                     entryPrice, stopPrice, stopPuntos, trailingNivel,
-                    contratosActuales, unrealizedPts, unrealizedPts * 0.50 * contratosActuales,
+                    contratosActuales, unrealizedPts, unrealizedPts * 2.0 * contratosActuales,
                     dailyPnL, totalPnL, tradesToday, metaDia, perdidaAcumulada,
                     breakevenHit ? "true" : "false",
                     contratoAgregado ? "true" : "false",
