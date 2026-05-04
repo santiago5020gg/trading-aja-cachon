@@ -107,6 +107,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         private int horaCierreM;
 
         private double realEntryPrice;
+        private double addOnEntryPrice;
+        private int mainQty;
         private int lastClosedDirection;
         private string lastClosedReason;
         private bool pnlTrackingStarted;
@@ -618,10 +620,14 @@ namespace NinjaTrader.NinjaScript.Strategies
                 double realPnL = 0;
                 string dir = lastClosedDirection == 1 ? "LONG" : "SHORT";
 
+                double avgEntry = realEntryPrice;
+                if (contratoAgregado && addOnEntryPrice > 0 && mainQty > 0)
+                    avgEntry = ((realEntryPrice * mainQty) + (addOnEntryPrice * 1)) / (mainQty + 1);
+
                 if (lastClosedDirection == 1)
-                    realPnL = (price - realEntryPrice) * 0.50 * quantity;
+                    realPnL = (price - avgEntry) * 0.50 * quantity;
                 else if (lastClosedDirection == -1)
-                    realPnL = (realEntryPrice - price) * 0.50 * quantity;
+                    realPnL = (avgEntry - price) * 0.50 * quantity;
 
                 dailyPnL += realPnL;
                 totalPnL += realPnL;
@@ -661,6 +667,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 {
                     realEntryPrice = price;
                     entryPrice = price;
+                    mainQty = quantity;
+                }
+                else if (orderName == "AddL" || orderName == "AddS")
+                {
+                    addOnEntryPrice = price;
                 }
 
                 string dir = marketPosition == MarketPosition.Long ? "LONG" : "SHORT";
@@ -699,6 +710,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             stopPuntos = 0;
             stopPrice = 0;
             entryPrice = 0;
+            addOnEntryPrice = 0;
+            mainQty = 0;
             lastDecision = "NEW_DAY";
             lastAction = "";
         }
