@@ -523,6 +523,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     SetStopLoss(addSignal, CalculationMode.Price, entryPrice, false);
                     contratoAgregado = true;
                     contratosActuales += 1;
+                    tradesToday++;
                 }
 
                 lastDecision = string.Format("BREAKEVEN stop={0:F2} qty={1}", stopPrice, contratosActuales);
