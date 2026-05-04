@@ -153,7 +153,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 IsInstantiatedOnEachOptimizationIteration = true;
                 IsOverlay = true;
 
-                MaxTrades = 2;
+                MaxTrades = 10;
                 RiesgoMaxDia = 600;
                 RiesgoMaxPrimerTrade = 400;
                 ColchonStop = 5;
@@ -428,10 +428,22 @@ namespace NinjaTrader.NinjaScript.Strategies
             int contratos = (int)Math.Floor(riesgoMax / (stopPts * 2.0));
             if (contratos <= 0)
             {
-                estado = BotState.DiaTerminado;
-                dayDone = true;
-                lastDecision = "SIN_CONTRATOS_DISPONIBLES";
-                return;
+                double maxStopBudget = Math.Floor(riesgoMax / 2.0);
+                if (maxStopBudget >= 1)
+                {
+                    contratos = 1;
+                    stopPts = maxStopBudget;
+                    stopNivel = direction == 1
+                        ? Close[0] - stopPts
+                        : Close[0] + stopPts;
+                }
+                else
+                {
+                    estado = BotState.DiaTerminado;
+                    dayDone = true;
+                    lastDecision = "SIN_CONTRATOS_DISPONIBLES";
+                    return;
+                }
             }
 
             entryPrice = Close[0];
@@ -480,7 +492,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (Position.MarketPosition == MarketPosition.Flat)
             {
                 tradeDirection = 0;
-                if (perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || tradesToday >= MaxTrades)
+                bool trailingExit = lastClosedReason == "TrailingStop";
+                if (trailingExit || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || tradesToday >= MaxTrades)
                 {
                     estado = BotState.DiaTerminado;
                     dayDone = true;
@@ -523,7 +536,6 @@ namespace NinjaTrader.NinjaScript.Strategies
                     SetStopLoss(addSignal, CalculationMode.Price, entryPrice, false);
                     contratoAgregado = true;
                     contratosActuales += 1;
-                    tradesToday++;
                 }
 
                 lastDecision = string.Format("BREAKEVEN stop={0:F2} qty={1}", stopPrice, contratosActuales);
@@ -568,7 +580,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (Position.MarketPosition == MarketPosition.Flat)
             {
                 tradeDirection = 0;
-                if (perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || tradesToday >= MaxTrades)
+                bool trailingExit = lastClosedReason == "TrailingStop";
+                if (trailingExit || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || tradesToday >= MaxTrades)
                 {
                     estado = BotState.DiaTerminado;
                     dayDone = true;
@@ -671,7 +684,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                     contratoAgregado = false;
                     breakevenHit = false;
 
-                    if (perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || tradesToday >= MaxTrades)
+                    bool trailingExit = lastClosedReason == "TrailingStop";
+                    if (trailingExit || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || tradesToday >= MaxTrades)
                     {
                         estado = BotState.DiaTerminado;
                         dayDone = true;
