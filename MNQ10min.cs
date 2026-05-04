@@ -88,7 +88,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double rangoHigh;
         private double rangoLow;
         private double rangoPuntos;
-        private bool rangoCalculado;
+
 
         private double dailyPnL;
         private double totalPnL;
@@ -221,10 +221,15 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 if (lastResetDate != DateTime.MinValue)
                 {
-                    string reason = dayDone
-                        ? (dailyPnL <= -RiesgoMaxDia ? "MaxLoss" : "MaxTrades")
-                        : "SessionEnd";
-                    if (metaDia > 0 && dailyPnL >= metaDia) reason = "MetaDia";
+                    string reason;
+                    if (dailyPnL <= -RiesgoMaxDia)
+                        reason = "MaxLoss";
+                    else if (metaDia > 0 && dailyPnL >= metaDia)
+                        reason = "MetaDia";
+                    else if (tradesToday >= MaxTrades)
+                        reason = "MaxTrades";
+                    else
+                        reason = "SessionEnd";
                     LogDailyCsv(lastResetDate, reason);
                 }
                 ResetDaily();
@@ -306,7 +311,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             rangoPuntos = rangoHigh - rangoLow;
-            rangoCalculado = true;
+
             estado = BotState.EsperandoRuptura;
 
             Draw.Rectangle(this, "Rango" + nyNow.ToString("yyyyMMdd"), false,
@@ -502,11 +507,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (!contratoAgregado)
                 {
                     string addSignal = tradeDirection == 1 ? "AddL" : "AddS";
-                    SetStopLoss(addSignal, CalculationMode.Price, entryPrice, false);
                     if (tradeDirection == 1)
                         EnterLong(1, addSignal);
                     else
                         EnterShort(1, addSignal);
+                    SetStopLoss(addSignal, CalculationMode.Price, entryPrice, false);
                     contratoAgregado = true;
                     contratosActuales += 1;
                 }
@@ -620,14 +625,14 @@ namespace NinjaTrader.NinjaScript.Strategies
                 double realPnL = 0;
                 string dir = lastClosedDirection == 1 ? "LONG" : "SHORT";
 
-                double avgEntry = realEntryPrice;
-                if (contratoAgregado && addOnEntryPrice > 0 && mainQty > 0)
-                    avgEntry = ((realEntryPrice * mainQty) + (addOnEntryPrice * 1)) / (mainQty + 1);
+                string fromSignal = execution.Order.FromEntrySignal ?? "";
+                bool isAddOn = fromSignal == "AddL" || fromSignal == "AddS";
+                double refEntry = isAddOn && addOnEntryPrice > 0 ? addOnEntryPrice : realEntryPrice;
 
                 if (lastClosedDirection == 1)
-                    realPnL = (price - avgEntry) * 0.50 * quantity;
+                    realPnL = (price - refEntry) * 0.50 * quantity;
                 else if (lastClosedDirection == -1)
-                    realPnL = (avgEntry - price) * 0.50 * quantity;
+                    realPnL = (refEntry - price) * 0.50 * quantity;
 
                 dailyPnL += realPnL;
                 totalPnL += realPnL;
@@ -700,7 +705,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             rangoHigh = double.MinValue;
             rangoLow = double.MaxValue;
             rangoPuntos = 0;
-            rangoCalculado = false;
+
             metaDia = 0;
             stopPuntosPrimerTrade = 0;
             contratosPrimerTrade = 0;
@@ -712,6 +717,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             entryPrice = 0;
             addOnEntryPrice = 0;
             mainQty = 0;
+            realEntryPrice = 0;
+            lastClosedDirection = 0;
+            lastClosedReason = "";
+            activeEntrySignal = null;
             lastDecision = "NEW_DAY";
             lastAction = "";
         }
