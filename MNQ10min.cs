@@ -326,6 +326,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void BuscarRuptura(DateTime nyNow)
         {
+            if (Position.MarketPosition != MarketPosition.Flat)
+                return;
+
             if (CheckDayLimits())
                 return;
 
@@ -476,8 +479,14 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (Position.MarketPosition == MarketPosition.Flat)
             {
-                estado = BotState.EsperandoRuptura;
                 tradeDirection = 0;
+                if (perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || tradesToday >= MaxTrades)
+                {
+                    estado = BotState.DiaTerminado;
+                    dayDone = true;
+                }
+                else
+                    estado = BotState.EsperandoRuptura;
                 return;
             }
 
@@ -557,8 +566,14 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (Position.MarketPosition == MarketPosition.Flat)
             {
-                estado = BotState.EsperandoRuptura;
                 tradeDirection = 0;
+                if (perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || tradesToday >= MaxTrades)
+                {
+                    estado = BotState.DiaTerminado;
+                    dayDone = true;
+                }
+                else
+                    estado = BotState.EsperandoRuptura;
                 return;
             }
 
