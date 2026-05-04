@@ -533,7 +533,6 @@ namespace NinjaTrader.NinjaScript.Strategies
                         EnterLong(1, addSignal);
                     else
                         EnterShort(1, addSignal);
-                    SetStopLoss(addSignal, CalculationMode.Price, entryPrice, false);
                     contratoAgregado = true;
                     contratosActuales += 1;
                 }
@@ -707,6 +706,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 else if (orderName == "AddL" || orderName == "AddS")
                 {
                     addOnEntryPrice = price;
+                    SetStopLoss(orderName, CalculationMode.Price, entryPrice, false);
                 }
 
                 string dir = marketPosition == MarketPosition.Long ? "LONG" : "SHORT";
