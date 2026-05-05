@@ -30,6 +30,10 @@ namespace NinjaTrader.NinjaScript.Strategies
         public bool ReentrarHastaAgotar { get; set; }
 
         [NinjaScriptProperty]
+        [Display(Name = "Reentrar tras trailing si negativo", GroupName = "1. Riesgo", Order = 4)]
+        public bool ReentrarTrasTrailingNegativo { get; set; }
+
+        [NinjaScriptProperty]
         [Display(Name = "Colchon Stop (pts)", GroupName = "2. Stop", Order = 1)]
         public int ColchonStop { get; set; }
 
@@ -100,6 +104,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double perdidaAcumulada;
 
         private double trailingNivel;
+        private bool addOnNeedsStop;
 
         private DateTime lastResetDate;
         private TimeZoneInfo easternZone;
@@ -156,6 +161,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 RiesgoMaxDia = 500;
                 MaxTrades = 2;
                 ReentrarHastaAgotar = false;
+                ReentrarTrasTrailingNegativo = false;
                 ColchonStop = 5;
                 MaxStopPuntos = 200;
                 HoraCierre = "15:50";
@@ -258,6 +264,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 WriteTelemetry(nyNow);
                 return;
             }
+
 
             switch (estado)
             {
@@ -489,7 +496,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 tradeDirection = 0;
                 bool trailingExit = lastClosedReason == "TrailingStop";
-                if (trailingExit || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || (!ReentrarHastaAgotar && tradesToday >= MaxTrades))
+                bool trailingStops = trailingExit && !(ReentrarTrasTrailingNegativo && dailyPnL < 0);
+                if (trailingStops || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || (!ReentrarHastaAgotar && tradesToday >= MaxTrades))
                 {
                     estado = BotState.DiaTerminado;
                     dayDone = true;
@@ -497,6 +505,19 @@ namespace NinjaTrader.NinjaScript.Strategies
                 else
                     estado = BotState.EsperandoRuptura;
                 return;
+            }
+
+            if (breakevenHit && contratoAgregado)
+            {
+                bool stopHit = tradeDirection == 1
+                    ? Close[0] <= entryPrice
+                    : Close[0] >= entryPrice;
+                if (stopHit)
+                {
+                    FlattenAll("HardStop");
+                    lastDecision = "EXIT_BREAKEVEN_ALL";
+                    return;
+                }
             }
 
             double movimiento = tradeDirection == 1
@@ -576,7 +597,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 tradeDirection = 0;
                 bool trailingExit = lastClosedReason == "TrailingStop";
-                if (trailingExit || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || (!ReentrarHastaAgotar && tradesToday >= MaxTrades))
+                bool trailingStops = trailingExit && !(ReentrarTrasTrailingNegativo && dailyPnL < 0);
+                if (trailingStops || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || (!ReentrarHastaAgotar && tradesToday >= MaxTrades))
                 {
                     estado = BotState.DiaTerminado;
                     dayDone = true;
@@ -702,7 +724,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 else if (orderName == "AddL" || orderName == "AddS")
                 {
                     addOnEntryPrice = price;
-                    SetStopLoss(orderName, CalculationMode.Price, entryPrice, false);
+                    addOnNeedsStop = true;
                 }
 
                 string dir = marketPosition == MarketPosition.Long ? "LONG" : "SHORT";
@@ -742,6 +764,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             stopPrice = 0;
             entryPrice = 0;
             addOnEntryPrice = 0;
+            addOnNeedsStop = false;
             mainQty = 0;
             realEntryPrice = 0;
             lastClosedDirection = 0;
