@@ -18,16 +18,16 @@ namespace NinjaTrader.NinjaScript.Strategies
         #region Parameters
 
         [NinjaScriptProperty]
-        [Display(Name = "Max Trades/Dia", GroupName = "1. Riesgo", Order = 1)]
-        public int MaxTrades { get; set; }
-
-        [NinjaScriptProperty]
-        [Display(Name = "Riesgo Max Dia ($)", GroupName = "1. Riesgo", Order = 2)]
+        [Display(Name = "Riesgo Max Dia ($)", GroupName = "1. Riesgo", Order = 1)]
         public double RiesgoMaxDia { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Riesgo Max Primer Trade ($)", GroupName = "1. Riesgo", Order = 3)]
-        public double RiesgoMaxPrimerTrade { get; set; }
+        [Display(Name = "Max Trades/Dia", GroupName = "1. Riesgo", Order = 2)]
+        public int MaxTrades { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Reentrar hasta agotar presupuesto", GroupName = "1. Riesgo", Order = 3)]
+        public bool ReentrarHastaAgotar { get; set; }
 
         [NinjaScriptProperty]
         [Display(Name = "Colchon Stop (pts)", GroupName = "2. Stop", Order = 1)]
@@ -153,9 +153,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                 IsInstantiatedOnEachOptimizationIteration = true;
                 IsOverlay = true;
 
-                MaxTrades = 10;
-                RiesgoMaxDia = 600;
-                RiesgoMaxPrimerTrade = 400;
+                RiesgoMaxDia = 500;
+                MaxTrades = 2;
+                ReentrarHastaAgotar = false;
                 ColchonStop = 5;
                 MaxStopPuntos = 200;
                 HoraCierre = "15:50";
@@ -373,7 +373,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 lastDecision = "META_DIA_ALCANZADA";
                 return true;
             }
-            if (tradesToday >= MaxTrades)
+            if (!ReentrarHastaAgotar && tradesToday >= MaxTrades)
             {
                 estado = BotState.DiaTerminado;
                 dayDone = true;
@@ -417,13 +417,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            double riesgoMax;
-            if (tradesToday == 0)
-                riesgoMax = RiesgoMaxPrimerTrade;
-            else
-                riesgoMax = perdidaAcumulada > 0
-                    ? RiesgoMaxDia - perdidaAcumulada
-                    : RiesgoMaxPrimerTrade;
+            double riesgoPorTrade = Math.Floor(RiesgoMaxDia / MaxTrades);
+            double presupuestoRestante = RiesgoMaxDia - perdidaAcumulada;
+            double riesgoMax = Math.Min(riesgoPorTrade, presupuestoRestante);
 
             int contratos = (int)Math.Floor(riesgoMax / (stopPts * 2.0));
             if (contratos <= 0)
@@ -493,7 +489,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 tradeDirection = 0;
                 bool trailingExit = lastClosedReason == "TrailingStop";
-                if (trailingExit || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || tradesToday >= MaxTrades)
+                if (trailingExit || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || (!ReentrarHastaAgotar && tradesToday >= MaxTrades))
                 {
                     estado = BotState.DiaTerminado;
                     dayDone = true;
@@ -580,7 +576,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 tradeDirection = 0;
                 bool trailingExit = lastClosedReason == "TrailingStop";
-                if (trailingExit || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || tradesToday >= MaxTrades)
+                if (trailingExit || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || (!ReentrarHastaAgotar && tradesToday >= MaxTrades))
                 {
                     estado = BotState.DiaTerminado;
                     dayDone = true;
@@ -684,7 +680,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     breakevenHit = false;
 
                     bool trailingExit = lastClosedReason == "TrailingStop";
-                    if (trailingExit || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || tradesToday >= MaxTrades)
+                    if (trailingExit || perdidaAcumulada >= RiesgoMaxDia || (metaDia > 0 && dailyPnL >= metaDia) || (!ReentrarHastaAgotar && tradesToday >= MaxTrades))
                     {
                         estado = BotState.DiaTerminado;
                         dayDone = true;
