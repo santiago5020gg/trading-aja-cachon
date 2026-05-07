@@ -60,6 +60,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private bool longUsado;
         private bool shortUsado;
+        private bool breakevenHit;
         private double dailyPnL;
         private double totalPnL;
         private int tradesToday;
@@ -322,6 +323,17 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ? Close[0] - entryPrice
                 : entryPrice - Close[0];
 
+            if (!breakevenHit && unrealPts >= stopDistance * 0.55)
+            {
+                double beStop = tradeDirection == 1 ? entryPrice + 5 : entryPrice - 5;
+                string signal = tradeDirection == 1 ? "RangoLong" : "RangoShort";
+                SetStopLoss(signal, CalculationMode.Price, beStop, false);
+                breakevenHit = true;
+                lastDecision = string.Format("BREAKEVEN {0} stop={1:F2} (+5pts)",
+                    tradeDirection == 1 ? "LONG" : "SHORT", beStop);
+                return;
+            }
+
             lastDecision = string.Format("EN_TRADE {0} entry={1:F2} unreal={2:F2}pts",
                 tradeDirection == 1 ? "LONG" : "SHORT", entryPrice, unrealPts);
         }
@@ -409,6 +421,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradeDirection = 0;
             rangoStartBar = 0;
             rangoEndBar = 0;
+            breakevenHit = false;
             rangoHigh = double.MinValue;
             rangoLow = double.MaxValue;
             rangoPuntos = 0;
