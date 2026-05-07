@@ -62,7 +62,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private bool longUsado;
         private bool shortUsado;
         private bool breakevenHit;
-        private bool tp2StopAjustado;
+        private int tp2StopNivel;  // 0=none, 1=85%, 2=90%, 3=98%
         private double dailyPnL;
         private double totalPnL;
         private int tradesToday;
@@ -346,19 +346,39 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            // TP2 trailing: at 85% of 2:1 target, move stop to 55% of 2:1 recorrido
+            // TP2 trailing stop escalado
             double tp2Target = stopDistance * 2;
-            if (!tp2StopAjustado && unrealPts >= tp2Target * 0.85)
-            {
-                double nuevoStop;
-                if (tradeDirection == 1)
-                    nuevoStop = entryPrice + (tp2Target * 0.55);
-                else
-                    nuevoStop = entryPrice - (tp2Target * 0.55);
+            string tp2Signal = tradeDirection == 1 ? "TP2Long" : "TP2Short";
 
-                string signalTP2 = tradeDirection == 1 ? "TP2Long" : "TP2Short";
-                SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
-                tp2StopAjustado = true;
+            if (tp2StopNivel < 3 && unrealPts >= tp2Target * 0.98)
+            {
+                double nuevoStop = tradeDirection == 1
+                    ? entryPrice + (tp2Target * 0.95)
+                    : entryPrice - (tp2Target * 0.95);
+                SetStopLoss(tp2Signal, CalculationMode.Price, nuevoStop, false);
+                tp2StopNivel = 3;
+                lastDecision = string.Format("TP2_STOP_98pct stop={0:F2}", nuevoStop);
+                return;
+            }
+
+            if (tp2StopNivel < 2 && unrealPts >= tp2Target * 0.90)
+            {
+                double nuevoStop = tradeDirection == 1
+                    ? entryPrice + (tp2Target * 0.75)
+                    : entryPrice - (tp2Target * 0.75);
+                SetStopLoss(tp2Signal, CalculationMode.Price, nuevoStop, false);
+                tp2StopNivel = 2;
+                lastDecision = string.Format("TP2_STOP_90pct stop={0:F2}", nuevoStop);
+                return;
+            }
+
+            if (tp2StopNivel < 1 && unrealPts >= tp2Target * 0.85)
+            {
+                double nuevoStop = tradeDirection == 1
+                    ? entryPrice + (tp2Target * 0.55)
+                    : entryPrice - (tp2Target * 0.55);
+                SetStopLoss(tp2Signal, CalculationMode.Price, nuevoStop, false);
+                tp2StopNivel = 1;
                 lastDecision = string.Format("TP2_STOP_85pct stop={0:F2}", nuevoStop);
                 return;
             }
@@ -454,7 +474,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             rangoStartBar = 0;
             rangoEndBar = 0;
             breakevenHit = false;
-            tp2StopAjustado = false;
+            tp2StopNivel = 0;
             rangoHigh = double.MinValue;
             rangoLow = double.MaxValue;
             rangoPuntos = 0;
