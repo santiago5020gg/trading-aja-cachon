@@ -67,6 +67,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         private bool tradeEndedByBreakeven;
         private bool tradeEndedByStop;
         private int lastExitDirection;
+        private DateTime breakevenExitTime;
+        private bool waitingAfterBreakeven;
         private double dailyPnL;
         private double totalPnL;
         private int tradesToday;
@@ -195,6 +197,23 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ProcesarFinTrade();
             }
 
+            if (waitingAfterBreakeven)
+            {
+                if (Time[0] >= breakevenExitTime.AddMinutes(2))
+                {
+                    waitingAfterBreakeven = false;
+                    estado = BotState.OrdenesPuestas;
+                    ColocarOrdenes();
+                    lastDecision = string.Format("REENTRY_BE H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                }
+                else
+                {
+                    lastDecision = "ESPERANDO_2MIN_BE";
+                    WriteTelemetry(nyNow);
+                    return;
+                }
+            }
+
             switch (estado)
             {
                 case BotState.EsperandoRango:
@@ -224,16 +243,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (tradeEndedByBreakeven)
             {
-                // Breakeven: redibujar ambas lineas, esperar nueva ruptura
                 longUsado = false;
                 shortUsado = false;
-                estado = BotState.OrdenesPuestas;
-                ColocarOrdenes();
-                lastDecision = string.Format("REENTRY_BE H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                waitingAfterBreakeven = true;
+                breakevenExitTime = Time[0];
+                lastDecision = "ESPERANDO_2MIN_BE";
             }
             else if (tradeEndedByStop)
             {
-                // Stop loss: redibujar linea del reverso
                 if (lastExitDirection == 1)
                     shortUsado = false;
                 else
@@ -244,7 +261,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             else
             {
-                // TakeProfit sin breakeven: dia terminado
                 estado = BotState.DiaTerminado;
                 lastDecision = "DIA_TERMINADO_TP";
             }
@@ -542,6 +558,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradeEnded = false;
             tradeEndedByBreakeven = false;
             tradeEndedByStop = false;
+            waitingAfterBreakeven = false;
             rangoHigh = double.MinValue;
             rangoLow = double.MaxValue;
             rangoPuntos = 0;
