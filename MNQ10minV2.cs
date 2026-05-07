@@ -414,6 +414,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                     tradeEnded = true;
                     if (breakevenHit)
                         tradeEndedByBreakeven = true;
+                    else
+                        tradeEndedByStop = true;
                     lastExitDirection = tradeDirection;
                 }
                 return;
