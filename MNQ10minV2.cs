@@ -264,8 +264,17 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (pendingRedraw)
             {
+                if (tradesToday >= MaxTrades)
+                {
+                    estado = BotState.DiaTerminado;
+                    pendingRedraw = false;
+                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                    return;
+                }
                 ColocarOrdenes();
                 pendingRedraw = false;
+                lastDecision = string.Format("REENTRY reason={0} H={1:F2} L={2:F2}", lastExitReason, rangoHigh, rangoLow);
+                return;
             }
 
             if (Position.MarketPosition != MarketPosition.Flat)
@@ -321,10 +330,11 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (Position.MarketPosition == MarketPosition.Flat)
             {
-                if (estado == BotState.OrdenesPuestas || estado == BotState.DiaTerminado)
-                    return;
-                estado = BotState.DiaTerminado;
-                lastDecision = "DIA_TERMINADO";
+                if (tradeDirection == 0 && estado == BotState.EnTrade)
+                {
+                    estado = BotState.DiaTerminado;
+                    lastDecision = "DIA_TERMINADO";
+                }
                 return;
             }
 
