@@ -66,6 +66,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         private bool tradeEnded;
         private bool tradeEndedByBreakeven;
         private bool tradeEndedByStop;
+        private bool tradeEndedByTP;
+        private string lastExitReason;
         private int lastExitDirection;
         private DateTime exitTime;
         private bool waitingAfterBreakeven;
@@ -283,6 +285,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             tradeEndedByBreakeven = false;
             tradeEndedByStop = false;
+            tradeEndedByTP = false;
             breakevenHit = false;
         }
 
@@ -412,7 +415,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (!tradeEnded)
                 {
                     tradeEnded = true;
-                    if (breakevenHit)
+                    if (tradeEndedByTP)
+                        ; // TP hit → DIA_TERMINADO
+                    else if (breakevenHit)
                         tradeEndedByBreakeven = true;
                     else
                         tradeEndedByStop = true;
@@ -548,12 +553,18 @@ namespace NinjaTrader.NinjaScript.Strategies
                 DateTime exitNY = TimeZoneInfo.ConvertTime(time, easternZone);
                 LogTradeCsv(exitNY, "EXIT", dir, price, pnl, reason);
 
+                lastExitReason = reason;
+                if (reason == "TakeProfit")
+                    tradeEndedByTP = true;
+
                 if (marketPosition == MarketPosition.Flat)
                 {
                     lastExitDirection = tradeDirection;
                     tradeEnded = true;
 
-                    if (breakevenHit)
+                    if (tradeEndedByTP)
+                        ; // ambos TP hit → DIA_TERMINADO
+                    else if (breakevenHit)
                         tradeEndedByBreakeven = true;
                     else if (reason == "StopLoss")
                         tradeEndedByStop = true;
@@ -578,6 +589,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradeEnded = false;
             tradeEndedByBreakeven = false;
             tradeEndedByStop = false;
+            tradeEndedByTP = false;
+            lastExitReason = "";
             waitingAfterBreakeven = false;
             waitingAfterStop = false;
             rangoHigh = double.MinValue;
