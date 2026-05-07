@@ -66,7 +66,6 @@ namespace NinjaTrader.NinjaScript.Strategies
         private bool tradeEnded;
         private bool tradeEndedByBreakeven;
         private bool tradeEndedByStop;
-        private bool tradeEndedByTP;
         private string lastExitReason;
         private int lastExitDirection;
         private DateTime exitTime;
@@ -285,7 +284,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             tradeEndedByBreakeven = false;
             tradeEndedByStop = false;
-            tradeEndedByTP = false;
             breakevenHit = false;
         }
 
@@ -415,8 +413,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (!tradeEnded)
                 {
                     tradeEnded = true;
-                    if (tradeEndedByTP)
-                        ; // TP hit → DIA_TERMINADO
+                    if (lastExitReason == "TakeProfit")
+                        ; // último exit fue TP → DIA_TERMINADO
                     else if (breakevenHit)
                         tradeEndedByBreakeven = true;
                     else
@@ -554,19 +552,16 @@ namespace NinjaTrader.NinjaScript.Strategies
                 LogTradeCsv(exitNY, "EXIT", dir, price, pnl, reason);
 
                 lastExitReason = reason;
-                if (reason == "TakeProfit")
-                    tradeEndedByTP = true;
-
                 if (marketPosition == MarketPosition.Flat)
                 {
                     lastExitDirection = tradeDirection;
                     tradeEnded = true;
 
-                    if (tradeEndedByTP)
-                        ; // ambos TP hit → DIA_TERMINADO
+                    if (reason == "TakeProfit")
+                        ; // último exit fue TP → DIA_TERMINADO
                     else if (breakevenHit)
                         tradeEndedByBreakeven = true;
-                    else if (reason == "StopLoss")
+                    else
                         tradeEndedByStop = true;
                 }
             }
@@ -589,7 +584,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradeEnded = false;
             tradeEndedByBreakeven = false;
             tradeEndedByStop = false;
-            tradeEndedByTP = false;
             lastExitReason = "";
             waitingAfterBreakeven = false;
             waitingAfterStop = false;
