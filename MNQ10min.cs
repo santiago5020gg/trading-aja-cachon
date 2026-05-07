@@ -34,6 +34,14 @@ namespace NinjaTrader.NinjaScript.Strategies
         public bool ReentrarTrasTrailingNegativo { get; set; }
 
         [NinjaScriptProperty]
+        [Display(Name = "Add-on solo si dia positivo", GroupName = "1. Riesgo", Order = 5)]
+        public bool AddOnSoloPositivo { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "No add-on tras perdida", GroupName = "1. Riesgo", Order = 6)]
+        public bool NoAddOnTrasPerdida { get; set; }
+
+        [NinjaScriptProperty]
         [Display(Name = "Colchon Stop (pts)", GroupName = "2. Stop", Order = 1)]
         public int ColchonStop { get; set; }
 
@@ -162,6 +170,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 MaxTrades = 2;
                 ReentrarHastaAgotar = false;
                 ReentrarTrasTrailingNegativo = false;
+                AddOnSoloPositivo = false;
+                NoAddOnTrasPerdida = false;
                 ColchonStop = 5;
                 MaxStopPuntos = 200;
                 HoraCierre = "15:50";
@@ -545,13 +555,22 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 if (!contratoAgregado)
                 {
-                    string addSignal = tradeDirection == 1 ? "AddL" : "AddS";
-                    if (tradeDirection == 1)
-                        EnterLong(1, addSignal);
-                    else
-                        EnterShort(1, addSignal);
-                    contratoAgregado = true;
-                    contratosActuales += 1;
+                    bool permitirAddOn = true;
+                    if (NoAddOnTrasPerdida && perdidaAcumulada > 0)
+                        permitirAddOn = false;
+                    else if (AddOnSoloPositivo && perdidaAcumulada > 0 && dailyPnL < 0)
+                        permitirAddOn = false;
+
+                    if (permitirAddOn)
+                    {
+                        string addSignal = tradeDirection == 1 ? "AddL" : "AddS";
+                        if (tradeDirection == 1)
+                            EnterLong(1, addSignal);
+                        else
+                            EnterShort(1, addSignal);
+                        contratoAgregado = true;
+                        contratosActuales += 1;
+                    }
                 }
 
                 lastDecision = string.Format("BREAKEVEN stop={0:F2} qty={1}", stopPrice, contratosActuales);
