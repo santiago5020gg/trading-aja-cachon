@@ -161,7 +161,11 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (nyDate != lastResetDate)
             {
                 if (lastResetDate != DateTime.MinValue)
+                {
                     LogDailyCsv(lastResetDate);
+                    if (Position.MarketPosition != MarketPosition.Flat)
+                        FlattenAll("CierreDia");
+                }
                 ResetDaily();
                 lastResetDate = nyDate;
             }
@@ -186,8 +190,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            // Si el trade terminó, procesar la transición aquí (dentro de OnBarUpdate)
-            if (tradeEnded && Position.MarketPosition == MarketPosition.Flat)
+            if (tradeEnded)
             {
                 ProcesarFinTrade();
             }
@@ -371,7 +374,16 @@ namespace NinjaTrader.NinjaScript.Strategies
         private void MonitorearTrade(DateTime nyNow)
         {
             if (Position.MarketPosition == MarketPosition.Flat)
+            {
+                if (!tradeEnded)
+                {
+                    tradeEnded = true;
+                    if (breakevenHit)
+                        tradeEndedByBreakeven = true;
+                    lastExitDirection = tradeDirection;
+                }
                 return;
+            }
 
             double unrealPts = tradeDirection == 1
                 ? Close[0] - entryPrice
