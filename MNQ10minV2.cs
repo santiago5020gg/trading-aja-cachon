@@ -388,14 +388,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                     tradeDirection = 0;
 
                     if (tradesToday >= MaxTrades || (longUsado && shortUsado))
-                    {
                         estado = BotState.DiaTerminado;
-                    }
                     else
-                    {
                         estado = BotState.OrdenesPuestas;
-                        ColocarOrdenes();
-                    }
                 }
             }
         }
