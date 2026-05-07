@@ -67,8 +67,9 @@ namespace NinjaTrader.NinjaScript.Strategies
         private bool tradeEndedByBreakeven;
         private bool tradeEndedByStop;
         private int lastExitDirection;
-        private DateTime breakevenExitTime;
+        private DateTime exitTime;
         private bool waitingAfterBreakeven;
+        private bool waitingAfterStop;
         private double dailyPnL;
         private double totalPnL;
         private int tradesToday;
@@ -199,7 +200,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (waitingAfterBreakeven)
             {
-                if (Time[0] >= breakevenExitTime.AddMinutes(2))
+                if (Time[0] >= exitTime.AddMinutes(2))
                 {
                     waitingAfterBreakeven = false;
                     estado = BotState.OrdenesPuestas;
@@ -209,6 +210,23 @@ namespace NinjaTrader.NinjaScript.Strategies
                 else
                 {
                     lastDecision = "ESPERANDO_2MIN_BE";
+                    WriteTelemetry(nyNow);
+                    return;
+                }
+            }
+
+            if (waitingAfterStop)
+            {
+                if (Time[0] >= exitTime.AddMinutes(1))
+                {
+                    waitingAfterStop = false;
+                    estado = BotState.OrdenesPuestas;
+                    ColocarOrdenes();
+                    lastDecision = string.Format("REENTRY_SL H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                }
+                else
+                {
+                    lastDecision = "ESPERANDO_1MIN_SL";
                     WriteTelemetry(nyNow);
                     return;
                 }
@@ -246,18 +264,16 @@ namespace NinjaTrader.NinjaScript.Strategies
                 longUsado = false;
                 shortUsado = false;
                 waitingAfterBreakeven = true;
-                breakevenExitTime = Time[0];
+                exitTime = Time[0];
                 lastDecision = "ESPERANDO_2MIN_BE";
             }
             else if (tradeEndedByStop)
             {
-                if (lastExitDirection == 1)
-                    shortUsado = false;
-                else
-                    longUsado = false;
-                estado = BotState.OrdenesPuestas;
-                ColocarOrdenes();
-                lastDecision = string.Format("REENTRY_SL H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                longUsado = false;
+                shortUsado = false;
+                waitingAfterStop = true;
+                exitTime = Time[0];
+                lastDecision = "ESPERANDO_1MIN_SL";
             }
             else
             {
@@ -559,6 +575,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradeEndedByBreakeven = false;
             tradeEndedByStop = false;
             waitingAfterBreakeven = false;
+            waitingAfterStop = false;
             rangoHigh = double.MinValue;
             rangoLow = double.MaxValue;
             rangoPuntos = 0;
