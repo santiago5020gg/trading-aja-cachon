@@ -65,7 +65,6 @@ namespace NinjaTrader.NinjaScript.Strategies
         private int tp2StopNivel;  // 0=none, 1=85%, 2=90%, 3=98%
         private int lastExitDirection;  // 1=long, -1=short
         private string lastExitReason;  // "StopLoss", "TakeProfit", "Breakeven"
-        private bool pendingRedraw;
         private double dailyPnL;
         private double totalPnL;
         private int tradesToday;
@@ -262,25 +261,17 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void MonitorearOrdenes(DateTime nyNow)
         {
-            if (pendingRedraw)
-            {
-                if (tradesToday >= MaxTrades)
-                {
-                    estado = BotState.DiaTerminado;
-                    pendingRedraw = false;
-                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
-                    return;
-                }
-                ColocarOrdenes();
-                pendingRedraw = false;
-                lastDecision = string.Format("REENTRY reason={0} H={1:F2} L={2:F2}", lastExitReason, rangoHigh, rangoLow);
-                return;
-            }
-
             if (Position.MarketPosition != MarketPosition.Flat)
             {
                 estado = BotState.EnTrade;
                 lastDecision = string.Format("EN_TRADE {0}", tradeDirection == 1 ? "LONG" : "SHORT");
+                return;
+            }
+
+            if (tradesToday >= MaxTrades)
+            {
+                estado = BotState.DiaTerminado;
+                lastDecision = "DIA_TERMINADO_MAX_TRADES";
                 return;
             }
 
@@ -330,7 +321,35 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (Position.MarketPosition == MarketPosition.Flat)
             {
-                if (tradeDirection == 0 && estado == BotState.EnTrade)
+                if (tradeDirection != 0) return;
+
+                bool wasBreakeven = breakevenHit;
+                breakevenHit = false;
+
+                if (lastExitReason == "TakeProfit" && !wasBreakeven)
+                {
+                    estado = BotState.DiaTerminado;
+                    lastDecision = "DIA_TERMINADO_TP";
+                }
+                else if (wasBreakeven)
+                {
+                    longUsado = false;
+                    shortUsado = false;
+                    estado = BotState.OrdenesPuestas;
+                    ColocarOrdenes();
+                    lastDecision = string.Format("REENTRY_BE H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                }
+                else if (lastExitReason == "StopLoss")
+                {
+                    if (lastExitDirection == 1)
+                        shortUsado = false;
+                    else
+                        longUsado = false;
+                    estado = BotState.OrdenesPuestas;
+                    ColocarOrdenes();
+                    lastDecision = string.Format("REENTRY_SL H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                }
+                else
                 {
                     estado = BotState.DiaTerminado;
                     lastDecision = "DIA_TERMINADO";
@@ -342,7 +361,6 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ? Close[0] - entryPrice
                 : entryPrice - Close[0];
 
-            // Breakeven: at 55% of stopDistance, move stop to entry + 5pts for both contracts
             if (!breakevenHit && unrealPts >= stopDistance * 0.55)
             {
                 double beStop = tradeDirection == 1 ? entryPrice + 5 : entryPrice - 5;
@@ -355,7 +373,6 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            // TP2 trailing stop escalado
             double tp2Target = stopDistance * 2;
             string tp2Signal = tradeDirection == 1 ? "TP2Long" : "TP2Short";
 
@@ -468,38 +485,13 @@ namespace NinjaTrader.NinjaScript.Strategies
                 DateTime exitNY = TimeZoneInfo.ConvertTime(time, easternZone);
                 LogTradeCsv(exitNY, "EXIT", dir, price, pnl, reason);
 
-                Draw.Diamond(this, "Exit" + CurrentBar, true, 0, price, Brushes.Yellow);
-
                 if (marketPosition == MarketPosition.Flat)
                 {
                     lastExitDirection = tradeDirection;
                     lastExitReason = reason;
-                    bool wasBreakeven = breakevenHit;
                     tradeDirection = 0;
                     entryPrice = 0;
-                    breakevenHit = false;
                     tp2StopNivel = 0;
-
-                    if (reason == "TakeProfit" && !wasBreakeven)
-                    {
-                        estado = BotState.DiaTerminado;
-                    }
-                    else if (wasBreakeven)
-                    {
-                        longUsado = false;
-                        shortUsado = false;
-                        estado = BotState.OrdenesPuestas;
-                        pendingRedraw = true;
-                    }
-                    else
-                    {
-                        if (lastExitDirection == 1)
-                            shortUsado = false;
-                        else
-                            longUsado = false;
-                        estado = BotState.OrdenesPuestas;
-                        pendingRedraw = true;
-                    }
                 }
             }
         }
@@ -525,7 +517,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             entryPrice = 0;
             longUsado = false;
             shortUsado = false;
-            pendingRedraw = false;
             lastDecision = "NEW_DAY";
             lastAction = "";
         }
