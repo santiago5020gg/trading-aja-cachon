@@ -55,6 +55,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double rangoHigh;
         private double rangoLow;
         private double rangoPuntos;
+        private int rangoStartBar;
+        private int rangoEndBar;
 
         private bool longUsado;
         private bool shortUsado;
@@ -210,13 +212,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (enVentana)
             {
+                if (rangoStartBar == 0) rangoStartBar = CurrentBar;
+                rangoEndBar = CurrentBar;
                 if (High[0] > rangoHigh) rangoHigh = High[0];
                 if (Low[0] < rangoLow) rangoLow = Low[0];
                 lastDecision = string.Format("ACUMULANDO_RANGO H={0:F2} L={1:F2}", rangoHigh, rangoLow);
                 return;
             }
 
-            // 09:40 or later: rango listo
             if (rangoHigh == double.MinValue || rangoLow == double.MaxValue)
             {
                 lastDecision = "RANGO_INVALIDO";
@@ -227,8 +230,9 @@ namespace NinjaTrader.NinjaScript.Strategies
             rangoPuntos = rangoHigh - rangoLow;
             stopDistance = rangoPuntos + ColchonStop;
 
+            int barsBack = CurrentBar - rangoStartBar;
             Draw.Rectangle(this, "Rango" + nyNow.ToString("yyyyMMdd"), false,
-                5, rangoHigh, 0, rangoLow, Brushes.Transparent, Brushes.DodgerBlue, 30);
+                barsBack, rangoHigh, 0, rangoLow, Brushes.Transparent, Brushes.DodgerBlue, 30);
 
             ColocarOrdenes();
 
@@ -332,12 +336,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             string orderName = execution.Order.Name;
 
-            // Entry fills
+            // Entry fills — cancel opposite order by marking both sides used
             if (orderName == "RangoLong")
             {
                 entryPrice = price;
                 tradeDirection = 1;
                 longUsado = true;
+                shortUsado = true;
                 tradesToday++;
                 estado = BotState.EnTrade;
 
@@ -352,6 +357,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 entryPrice = price;
                 tradeDirection = -1;
                 shortUsado = true;
+                longUsado = true;
                 tradesToday++;
                 estado = BotState.EnTrade;
 
@@ -386,11 +392,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (marketPosition == MarketPosition.Flat)
                 {
                     tradeDirection = 0;
-
-                    if (tradesToday >= MaxTrades || (longUsado && shortUsado))
-                        estado = BotState.DiaTerminado;
-                    else
-                        estado = BotState.OrdenesPuestas;
+                    estado = BotState.DiaTerminado;
                 }
             }
         }
@@ -405,6 +407,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradesToday = 0;
             estado = BotState.EsperandoRango;
             tradeDirection = 0;
+            rangoStartBar = 0;
+            rangoEndBar = 0;
             rangoHigh = double.MinValue;
             rangoLow = double.MaxValue;
             rangoPuntos = 0;
