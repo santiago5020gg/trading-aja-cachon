@@ -117,7 +117,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 IsInstantiatedOnEachOptimizationIteration = true;
                 IsOverlay = true;
 
-                ColchonStop = 10;
+                ColchonStop = 5;
                 MaxTrades = 2;
                 HoraCierre = "15:50";
                 ModoLog = LogMode.Month;
