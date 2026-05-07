@@ -61,16 +61,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private bool longUsado;
         private bool shortUsado;
+        private bool reentryPriceInRange;
         private bool breakevenHit;
         private int tp2StopNivel;
         private bool tradeEnded;
-        private bool tradeEndedByBreakeven;
-        private bool tradeEndedByStop;
+        private bool tradeEndedByTakeProfit;
         private string lastExitReason;
         private int lastExitDirection;
-        private DateTime exitTime;
-        private bool waitingAfterBreakeven;
-        private bool waitingAfterStop;
         private double dailyPnL;
         private double totalPnL;
         private int tradesToday;
@@ -118,7 +115,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 IsInstantiatedOnEachOptimizationIteration = true;
                 IsOverlay = true;
 
-                ColchonStop = 5;
+                ColchonStop = 30;
                 MaxTrades = 2;
                 HoraCierre = "15:50";
                 ModoLog = LogMode.Month;
@@ -201,39 +198,6 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ProcesarFinTrade();
             }
 
-            if (waitingAfterBreakeven)
-            {
-                if (Time[0] >= exitTime.AddMinutes(2))
-                {
-                    waitingAfterBreakeven = false;
-                    estado = BotState.OrdenesPuestas;
-                    ColocarOrdenes();
-                    lastDecision = string.Format("REENTRY_BE H={0:F2} L={1:F2}", rangoHigh, rangoLow);
-                }
-                else
-                {
-                    lastDecision = "ESPERANDO_2MIN_BE";
-                    if (firstTick) WriteTelemetry(nyNow);
-                    return;
-                }
-            }
-
-            if (waitingAfterStop)
-            {
-                if (Time[0] >= exitTime.AddMinutes(1))
-                {
-                    waitingAfterStop = false;
-                    estado = BotState.OrdenesPuestas;
-                    ColocarOrdenes();
-                    lastDecision = string.Format("REENTRY_SL H={0:F2} L={1:F2}", rangoHigh, rangoLow);
-                }
-                else
-                {
-                    lastDecision = "ESPERANDO_1MIN_SL";
-                    if (firstTick) WriteTelemetry(nyNow);
-                    return;
-                }
-            }
 
             switch (estado)
             {
@@ -260,32 +224,23 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradeEnded = false;
             tradeDirection = 0;
             entryPrice = 0;
-            tp2StopNivel = 0;
+            tp2StopNivel = -1;
 
-            if (tradeEndedByBreakeven)
-            {
-                longUsado = false;
-                shortUsado = false;
-                waitingAfterBreakeven = true;
-                exitTime = Time[0];
-                lastDecision = "ESPERANDO_2MIN_BE";
-            }
-            else if (tradeEndedByStop)
-            {
-                longUsado = false;
-                shortUsado = false;
-                waitingAfterStop = true;
-                exitTime = Time[0];
-                lastDecision = "ESPERANDO_1MIN_SL";
-            }
-            else
+            if (tradeEndedByTakeProfit)
             {
                 estado = BotState.DiaTerminado;
                 lastDecision = "DIA_TERMINADO_TP";
             }
+            else
+            {
+                longUsado = false;
+                shortUsado = false;
+                reentryPriceInRange = false;
+                estado = BotState.OrdenesPuestas;
+                lastDecision = string.Format("REENTRY_ORDENES H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+            }
 
-            tradeEndedByBreakeven = false;
-            tradeEndedByStop = false;
+            tradeEndedByTakeProfit = false;
             breakevenHit = false;
         }
 
@@ -369,6 +324,22 @@ namespace NinjaTrader.NinjaScript.Strategies
             double tpTicks = stopDistance / TickSize;
             double tp2Ticks = (stopDistance * 2) / TickSize;
 
+            bool esReentry = tradesToday > 0;
+
+            if (esReentry && !reentryPriceInRange)
+            {
+                if (Close[0] > rangoLow && Close[0] < rangoHigh)
+                {
+                    reentryPriceInRange = true;
+                    ColocarOrdenes();
+                }
+                else
+                {
+                    lastDecision = string.Format("REENTRY_ESPERA_RANGO H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                    return;
+                }
+            }
+
             if (!longUsado && Close[0] >= rangoHigh)
             {
                 SetStopLoss("TP1Long", CalculationMode.Price, stopLong, false);
@@ -416,13 +387,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 {
                     tradeEnded = true;
                     if (lastExitReason == "TakeProfit")
-                        ; // último exit fue TP → DIA_TERMINADO
-                    else if (breakevenHit && tp2StopNivel == 0)
-                        tradeEndedByBreakeven = true;
-                    else if (breakevenHit && tp2StopNivel >= 1)
-                        ; // trailing stop con ganancia → DIA_TERMINADO
-                    else
-                        tradeEndedByStop = true;
+                        tradeEndedByTakeProfit = true;
                     lastExitDirection = tradeDirection;
                 }
                 return;
@@ -432,7 +397,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ? Close[0] - entryPrice
                 : entryPrice - Close[0];
 
-            if (!breakevenHit && unrealPts >= stopDistance * 0.55)
+            if (!breakevenHit && unrealPts >= stopDistance * 0.65)
             {
                 double beStop = tradeDirection == 1 ? entryPrice + 5 : entryPrice - 5;
                 string signalTP1 = tradeDirection == 1 ? "TP1Long" : "TP1Short";
@@ -441,6 +406,18 @@ namespace NinjaTrader.NinjaScript.Strategies
                 SetStopLoss(signalTP2, CalculationMode.Price, beStop, false);
                 breakevenHit = true;
                 lastDecision = string.Format("BREAKEVEN_BOTH stop={0:F2}", beStop);
+                return;
+            }
+
+            if (breakevenHit && tp2StopNivel < 0 && unrealPts >= stopDistance * 0.80)
+            {
+                double tp1Stop = tradeDirection == 1
+                    ? entryPrice + (stopDistance * 0.55)
+                    : entryPrice - (stopDistance * 0.55);
+                string signalTP1 = tradeDirection == 1 ? "TP1Long" : "TP1Short";
+                SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
+                tp2StopNivel = 0;
+                lastDecision = string.Format("TP1_STOP55={0:F2}", tp1Stop);
                 return;
             }
 
@@ -556,19 +533,14 @@ namespace NinjaTrader.NinjaScript.Strategies
                 LogTradeCsv(exitNY, "EXIT", dir, price, pnl, reason);
 
                 lastExitReason = reason;
+
                 if (marketPosition == MarketPosition.Flat)
                 {
                     lastExitDirection = tradeDirection;
                     tradeEnded = true;
 
                     if (reason == "TakeProfit")
-                        ; // último exit fue TP → DIA_TERMINADO
-                    else if (breakevenHit && tp2StopNivel == 0)
-                        tradeEndedByBreakeven = true;
-                    else if (breakevenHit && tp2StopNivel >= 1)
-                        ; // trailing stop con ganancia → DIA_TERMINADO
-                    else
-                        tradeEndedByStop = true;
+                        tradeEndedByTakeProfit = true;
                 }
             }
         }
@@ -586,13 +558,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             rangoStartBar = 0;
             rangoEndBar = 0;
             breakevenHit = false;
-            tp2StopNivel = 0;
+            tp2StopNivel = -1;
             tradeEnded = false;
-            tradeEndedByBreakeven = false;
-            tradeEndedByStop = false;
+            tradeEndedByTakeProfit = false;
             lastExitReason = "";
-            waitingAfterBreakeven = false;
-            waitingAfterStop = false;
             rangoHigh = double.MinValue;
             rangoLow = double.MaxValue;
             rangoPuntos = 0;
@@ -600,6 +569,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             entryPrice = 0;
             longUsado = false;
             shortUsado = false;
+            reentryPriceInRange = false;
             lastDecision = "NEW_DAY";
             lastAction = "";
         }
