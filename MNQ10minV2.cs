@@ -174,12 +174,14 @@ namespace NinjaTrader.NinjaScript.Strategies
                 lastResetDate = nyDate;
             }
 
-            LogBarCsv(nyNow);
+            bool firstTick = IsFirstTickOfBar;
+
+            if (firstTick) LogBarCsv(nyNow);
 
             if (estado == BotState.DiaTerminado)
             {
                 lastDecision = "DIA_TERMINADO";
-                WriteTelemetry(nyNow);
+                if (firstTick) WriteTelemetry(nyNow);
                 return;
             }
 
@@ -190,7 +192,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     FlattenAll("CierreForzado");
                 estado = BotState.DiaTerminado;
                 lastDecision = "CIERRE_FORZADO";
-                WriteTelemetry(nyNow);
+                if (firstTick) WriteTelemetry(nyNow);
                 return;
             }
 
@@ -211,7 +213,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 else
                 {
                     lastDecision = "ESPERANDO_2MIN_BE";
-                    WriteTelemetry(nyNow);
+                    if (firstTick) WriteTelemetry(nyNow);
                     return;
                 }
             }
@@ -228,7 +230,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 else
                 {
                     lastDecision = "ESPERANDO_1MIN_SL";
-                    WriteTelemetry(nyNow);
+                    if (firstTick) WriteTelemetry(nyNow);
                     return;
                 }
             }
@@ -246,7 +248,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     break;
             }
 
-            WriteTelemetry(nyNow);
+            if (firstTick) WriteTelemetry(nyNow);
         }
 
         #endregion
@@ -415,8 +417,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                     tradeEnded = true;
                     if (lastExitReason == "TakeProfit")
                         ; // último exit fue TP → DIA_TERMINADO
-                    else if (breakevenHit)
+                    else if (breakevenHit && tp2StopNivel == 0)
                         tradeEndedByBreakeven = true;
+                    else if (breakevenHit && tp2StopNivel >= 1)
+                        ; // trailing stop con ganancia → DIA_TERMINADO
                     else
                         tradeEndedByStop = true;
                     lastExitDirection = tradeDirection;
@@ -559,8 +563,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                     if (reason == "TakeProfit")
                         ; // último exit fue TP → DIA_TERMINADO
-                    else if (breakevenHit)
+                    else if (breakevenHit && tp2StopNivel == 0)
                         tradeEndedByBreakeven = true;
+                    else if (breakevenHit && tp2StopNivel >= 1)
+                        ; // trailing stop con ganancia → DIA_TERMINADO
                     else
                         tradeEndedByStop = true;
                 }
