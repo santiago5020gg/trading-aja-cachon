@@ -8,6 +8,7 @@ using System.Windows.Media;
 using NinjaTrader.Cbi;
 using NinjaTrader.Data;
 using NinjaTrader.NinjaScript;
+using NinjaTrader.Gui;
 using NinjaTrader.NinjaScript.DrawingTools;
 #endregion
 
