@@ -201,8 +201,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ProcesarRango(DateTime nyNow)
         {
-            bool antesVentana = nyNow.Hour < 9 || (nyNow.Hour == 9 && nyNow.Minute < 30);
-            bool enVentana = (nyNow.Hour == 9 && nyNow.Minute >= 30 && nyNow.Minute < 40);
+            bool antesVentana = nyNow.Hour < 9 || (nyNow.Hour == 9 && nyNow.Minute < 32);
+            bool enVentana = (nyNow.Hour == 9 && nyNow.Minute >= 32 && nyNow.Minute <= 40);
 
             if (antesVentana)
             {
