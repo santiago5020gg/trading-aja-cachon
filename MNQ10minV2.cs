@@ -333,14 +333,16 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ? Close[0] - entryPrice
                 : entryPrice - Close[0];
 
-            // TP1 breakeven: at 55% of stopDistance, move stop to entry + 5pts
+            // Breakeven: at 55% of stopDistance, move stop to entry + 5pts for both contracts
             if (!breakevenHit && unrealPts >= stopDistance * 0.55)
             {
                 double beStop = tradeDirection == 1 ? entryPrice + 5 : entryPrice - 5;
                 string signalTP1 = tradeDirection == 1 ? "TP1Long" : "TP1Short";
+                string signalTP2 = tradeDirection == 1 ? "TP2Long" : "TP2Short";
                 SetStopLoss(signalTP1, CalculationMode.Price, beStop, false);
+                SetStopLoss(signalTP2, CalculationMode.Price, beStop, false);
                 breakevenHit = true;
-                lastDecision = string.Format("BREAKEVEN_TP1 stop={0:F2}", beStop);
+                lastDecision = string.Format("BREAKEVEN_BOTH stop={0:F2}", beStop);
                 return;
             }
 
