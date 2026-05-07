@@ -315,10 +315,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (Position.MarketPosition == MarketPosition.Flat)
             {
                 if (estado == BotState.OrdenesPuestas)
-                {
-                    ColocarOrdenes();
                     lastDecision = string.Format("REENTRY reason={0}", lastExitReason);
-                }
                 else
                 {
                     estado = BotState.DiaTerminado;
@@ -468,19 +465,19 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                     if (reason == "StopLoss")
                     {
-                        // Stop hit sin breakeven: entrar al reverso inmediatamente
                         if (lastExitDirection == 1)
                             shortUsado = false;
                         else
                             longUsado = false;
                         estado = BotState.OrdenesPuestas;
+                        ColocarOrdenes();
                     }
                     else if (reason == "Breakeven")
                     {
-                        // Breakeven hit: redibujar ambas líneas y esperar nueva ruptura
                         longUsado = false;
                         shortUsado = false;
                         estado = BotState.OrdenesPuestas;
+                        ColocarOrdenes();
                     }
                     else
                     {
