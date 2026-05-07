@@ -274,20 +274,41 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            // Keep submitting orders each tick (NinjaScript requires this for stop market orders)
-            double stopTicks = stopDistance / TickSize;
+            // Detect gap-through: price already past the stop level without triggering
+            if (!longUsado && Close[0] >= rangoHigh)
+            {
+                double stopTicks = stopDistance / TickSize;
+                SetStopLoss("RangoLong", CalculationMode.Ticks, stopTicks, false);
+                SetProfitTarget("RangoLong", CalculationMode.Ticks, stopTicks);
+                EnterLong(1, "RangoLong");
+                lastDecision = string.Format("ENTRY_MARKET_LONG (gap) @{0:F2}", Close[0]);
+                return;
+            }
+
+            if (!shortUsado && Close[0] <= rangoLow)
+            {
+                double stopTicks = stopDistance / TickSize;
+                SetStopLoss("RangoShort", CalculationMode.Ticks, stopTicks, false);
+                SetProfitTarget("RangoShort", CalculationMode.Ticks, stopTicks);
+                EnterShort(1, "RangoShort");
+                lastDecision = string.Format("ENTRY_MARKET_SHORT (gap) @{0:F2}", Close[0]);
+                return;
+            }
+
+            // Normal: keep submitting stop market orders
+            double stopTks = stopDistance / TickSize;
 
             if (!longUsado)
             {
-                SetStopLoss("RangoLong", CalculationMode.Ticks, stopTicks, false);
-                SetProfitTarget("RangoLong", CalculationMode.Ticks, stopTicks);
+                SetStopLoss("RangoLong", CalculationMode.Ticks, stopTks, false);
+                SetProfitTarget("RangoLong", CalculationMode.Ticks, stopTks);
                 EnterLongStopMarket(1, rangoHigh, "RangoLong");
             }
 
             if (!shortUsado)
             {
-                SetStopLoss("RangoShort", CalculationMode.Ticks, stopTicks, false);
-                SetProfitTarget("RangoShort", CalculationMode.Ticks, stopTicks);
+                SetStopLoss("RangoShort", CalculationMode.Ticks, stopTks, false);
+                SetProfitTarget("RangoShort", CalculationMode.Ticks, stopTks);
                 EnterShortStopMarket(1, rangoLow, "RangoShort");
             }
 
