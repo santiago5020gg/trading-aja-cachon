@@ -361,32 +361,34 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            double stopTicks = stopDistance / TickSize;
+            double stopLong = rangoLow - ColchonStop;
+            double stopShort = rangoHigh + ColchonStop;
+            double tpTicks = stopDistance / TickSize;
             double tp2Ticks = (stopDistance * 2) / TickSize;
 
             if (!longUsado && Close[0] >= rangoHigh)
             {
-                SetStopLoss("TP1Long", CalculationMode.Ticks, stopTicks, false);
-                SetProfitTarget("TP1Long", CalculationMode.Ticks, stopTicks);
+                SetStopLoss("TP1Long", CalculationMode.Price, stopLong, false);
+                SetProfitTarget("TP1Long", CalculationMode.Ticks, tpTicks);
                 EnterLong(1, "TP1Long");
 
-                SetStopLoss("TP2Long", CalculationMode.Ticks, stopTicks, false);
+                SetStopLoss("TP2Long", CalculationMode.Price, stopLong, false);
                 SetProfitTarget("TP2Long", CalculationMode.Ticks, tp2Ticks);
                 EnterLong(1, "TP2Long");
 
                 RemoveDrawObject("BuyLevel");
                 RemoveDrawObject("SellLevel");
-                lastDecision = string.Format("ENTRY_LONG x2 @{0:F2}", Close[0]);
+                lastDecision = string.Format("ENTRY_LONG x2 @{0:F2} stop={1:F2}", Close[0], stopLong);
                 return;
             }
 
             if (!shortUsado && Close[0] <= rangoLow)
             {
-                SetStopLoss("TP1Short", CalculationMode.Ticks, stopTicks, false);
-                SetProfitTarget("TP1Short", CalculationMode.Ticks, stopTicks);
+                SetStopLoss("TP1Short", CalculationMode.Price, stopShort, false);
+                SetProfitTarget("TP1Short", CalculationMode.Ticks, tpTicks);
                 EnterShort(1, "TP1Short");
 
-                SetStopLoss("TP2Short", CalculationMode.Ticks, stopTicks, false);
+                SetStopLoss("TP2Short", CalculationMode.Price, stopShort, false);
                 SetProfitTarget("TP2Short", CalculationMode.Ticks, tp2Ticks);
                 EnterShort(1, "TP2Short");
 
