@@ -80,6 +80,9 @@ namespace NinjaTrader.NinjaScript.Strategies
         private int tp2StopNivel;
         private bool tradeEnded;
         private bool tradeEndedByTakeProfit;
+        private bool pendingFlip;
+        private int pendingFlipDirection;
+        private bool tradeCounted;
         private string lastExitReason;
         private int lastExitDirection;
         private double dailyPnL;
@@ -129,7 +132,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 IsInstantiatedOnEachOptimizationIteration = true;
                 IsOverlay = true;
 
-                ColchonStop = 30;
+                ColchonStop = 5;
                 MaxTrades = 2;
                 MicroContratos = 2;
                 ModoTP = TPMode.Con1a2;
@@ -266,27 +269,43 @@ namespace NinjaTrader.NinjaScript.Strategies
         private void ProcesarFinTrade()
         {
             tradeEnded = false;
+            int prevDirection = tradeDirection;
+            string exitReason = lastExitReason;
             tradeDirection = 0;
             entryPrice = 0;
             tp1StopNivel = 0;
             tp2StopNivel = -1;
+            breakevenHit = false;
+            tradeCounted = false;
 
             if (tradeEndedByTakeProfit)
             {
+                tradeEndedByTakeProfit = false;
                 estado = BotState.DiaTerminado;
                 lastDecision = "DIA_TERMINADO_TP";
             }
+            else if (tradesToday >= MaxTrades)
+            {
+                tradeEndedByTakeProfit = false;
+                estado = BotState.DiaTerminado;
+                lastDecision = "DIA_TERMINADO_MAX_TRADES";
+            }
+            else if (exitReason == "StopLoss")
+            {
+                tradeEndedByTakeProfit = false;
+                pendingFlip = true;
+                pendingFlipDirection = prevDirection == 1 ? -1 : 1;
+                estado = BotState.OrdenesPuestas;
+                lastDecision = string.Format("FLIP_PENDING dir={0}", pendingFlipDirection == 1 ? "LONG" : "SHORT");
+            }
             else
             {
-                longUsado = false;
-                shortUsado = false;
+                tradeEndedByTakeProfit = false;
+                pendingFlip = false;
                 reentryPriceInRange = false;
                 estado = BotState.OrdenesPuestas;
                 lastDecision = string.Format("REENTRY_ORDENES H={0:F2} L={1:F2}", rangoHigh, rangoLow);
             }
-
-            tradeEndedByTakeProfit = false;
-            breakevenHit = false;
         }
 
         #endregion
@@ -369,15 +388,50 @@ namespace NinjaTrader.NinjaScript.Strategies
             double tpTicks = stopDistance / TickSize;
             double tp2Ticks = (stopDistance * 2) / TickSize;
 
-            bool esReentry = tradesToday > 0;
+            // Flip inmediato tras stop loss
+            if (pendingFlip)
+            {
+                pendingFlip = false;
+                if (pendingFlipDirection == 1)
+                {
+                    if (qtyTP1 > 0)
+                    {
+                        SetStopLoss("TP1Long", CalculationMode.Price, stopLong, false);
+                        SetProfitTarget("TP1Long", CalculationMode.Ticks, tpTicks);
+                        EnterLong(qtyTP1, "TP1Long");
+                    }
+                    if (qtyTP2 > 0)
+                    {
+                        SetStopLoss("TP2Long", CalculationMode.Price, stopLong, false);
+                        SetProfitTarget("TP2Long", CalculationMode.Ticks, tp2Ticks);
+                        EnterLong(qtyTP2, "TP2Long");
+                    }
+                    lastDecision = string.Format("FLIP_LONG TP1x{0} TP2x{1} @{2:F2} stop={3:F2}", qtyTP1, qtyTP2, Close[0], stopLong);
+                }
+                else
+                {
+                    if (qtyTP1 > 0)
+                    {
+                        SetStopLoss("TP1Short", CalculationMode.Price, stopShort, false);
+                        SetProfitTarget("TP1Short", CalculationMode.Ticks, tpTicks);
+                        EnterShort(qtyTP1, "TP1Short");
+                    }
+                    if (qtyTP2 > 0)
+                    {
+                        SetStopLoss("TP2Short", CalculationMode.Price, stopShort, false);
+                        SetProfitTarget("TP2Short", CalculationMode.Ticks, tp2Ticks);
+                        EnterShort(qtyTP2, "TP2Short");
+                    }
+                    lastDecision = string.Format("FLIP_SHORT TP1x{0} TP2x{1} @{2:F2} stop={3:F2}", qtyTP1, qtyTP2, Close[0], stopShort);
+                }
+                return;
+            }
 
-            if (esReentry && !reentryPriceInRange)
+            // Re-entry tras breakeven: esperar que precio vuelva al rango
+            if (tradesToday > 0 && !reentryPriceInRange)
             {
                 if (Close[0] > rangoLow && Close[0] < rangoHigh)
-                {
                     reentryPriceInRange = true;
-                    ColocarOrdenes();
-                }
                 else
                 {
                     lastDecision = string.Format("REENTRY_ESPERA_RANGO H={0:F2} L={1:F2}", rangoHigh, rangoLow);
@@ -385,7 +439,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
             }
 
-            if (!longUsado && Close[0] >= rangoHigh)
+            if (Close[0] >= rangoHigh)
             {
                 if (qtyTP1 > 0)
                 {
@@ -405,7 +459,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            if (!shortUsado && Close[0] <= rangoLow)
+            if (Close[0] <= rangoLow)
             {
                 if (qtyTP1 > 0)
                 {
@@ -563,8 +617,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 tradeDirection = 1;
                 longUsado = true;
                 shortUsado = true;
-                bool countTrade = (qtyTP1 > 0 && orderName == "TP1Long") || (qtyTP1 == 0 && orderName == "TP2Long");
-                if (countTrade) tradesToday++;
+                if (!tradeCounted)
+                {
+                    tradesToday++;
+                    tradeCounted = true;
+                }
                 estado = BotState.EnTrade;
 
                 lastAction = string.Format("FILL LONG {0} x{1} @{2:F2}", orderName, quantity, price);
@@ -579,8 +636,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 tradeDirection = -1;
                 shortUsado = true;
                 longUsado = true;
-                bool countTrade = (qtyTP1 > 0 && orderName == "TP1Short") || (qtyTP1 == 0 && orderName == "TP2Short");
-                if (countTrade) tradesToday++;
+                if (!tradeCounted)
+                {
+                    tradesToday++;
+                    tradeCounted = true;
+                }
                 estado = BotState.EnTrade;
 
                 lastAction = string.Format("FILL SHORT {0} x{1} @{2:F2}", orderName, quantity, price);
@@ -647,6 +707,9 @@ namespace NinjaTrader.NinjaScript.Strategies
             tp2StopNivel = -1;
             tradeEnded = false;
             tradeEndedByTakeProfit = false;
+            pendingFlip = false;
+            pendingFlipDirection = 0;
+            tradeCounted = false;
             lastExitReason = "";
             rangoHigh = double.MinValue;
             rangoLow = double.MaxValue;
