@@ -76,6 +76,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private bool shortUsado;
         private bool reentryPriceInRange;
         private bool breakevenHit;
+        private int tp1StopNivel;
         private int tp2StopNivel;
         private bool tradeEnded;
         private bool tradeEndedByTakeProfit;
@@ -267,6 +268,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradeEnded = false;
             tradeDirection = 0;
             entryPrice = 0;
+            tp1StopNivel = 0;
             tp2StopNivel = -1;
 
             if (tradeEndedByTakeProfit)
@@ -399,8 +401,6 @@ namespace NinjaTrader.NinjaScript.Strategies
                     EnterLong(qtyTP2, "TP2Long");
                 }
 
-                RemoveDrawObject("BuyLevel");
-                RemoveDrawObject("SellLevel");
                 lastDecision = string.Format("ENTRY_LONG TP1x{0} TP2x{1} @{2:F2} stop={3:F2}", qtyTP1, qtyTP2, Close[0], stopLong);
                 return;
             }
@@ -421,8 +421,6 @@ namespace NinjaTrader.NinjaScript.Strategies
                     EnterShort(qtyTP2, "TP2Short");
                 }
 
-                RemoveDrawObject("BuyLevel");
-                RemoveDrawObject("SellLevel");
                 lastDecision = string.Format("ENTRY_SHORT TP1x{0} TP2x{1} @{2:F2}", qtyTP1, qtyTP2, Close[0]);
                 return;
             }
@@ -466,16 +464,41 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            // Trailing TP1: stop a 55% del stopDistance cuando llega a 80%
-            if (qtyTP1 > 0 && breakevenHit && tp2StopNivel < 0 && unrealPts >= stopDistance * 0.80)
+            // Trailing TP1: escalones 80%→55%, 90%→75%, 95%→90%
+            if (qtyTP1 > 0 && breakevenHit)
             {
-                double tp1Stop = tradeDirection == 1
-                    ? entryPrice + (stopDistance * 0.55)
-                    : entryPrice - (stopDistance * 0.55);
-                SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
-                tp2StopNivel = 0;
-                lastDecision = string.Format("TP1_STOP55={0:F2}", tp1Stop);
-                return;
+                if (tp1StopNivel < 3 && unrealPts >= stopDistance * 0.95)
+                {
+                    double tp1Stop = tradeDirection == 1
+                        ? entryPrice + (stopDistance * 0.90)
+                        : entryPrice - (stopDistance * 0.90);
+                    SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
+                    tp1StopNivel = 3;
+                    lastDecision = string.Format("TP1_STOP90={0:F2}", tp1Stop);
+                    return;
+                }
+
+                if (tp1StopNivel < 2 && unrealPts >= stopDistance * 0.90)
+                {
+                    double tp1Stop = tradeDirection == 1
+                        ? entryPrice + (stopDistance * 0.75)
+                        : entryPrice - (stopDistance * 0.75);
+                    SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
+                    tp1StopNivel = 2;
+                    lastDecision = string.Format("TP1_STOP75={0:F2}", tp1Stop);
+                    return;
+                }
+
+                if (tp1StopNivel < 1 && unrealPts >= stopDistance * 0.80)
+                {
+                    double tp1Stop = tradeDirection == 1
+                        ? entryPrice + (stopDistance * 0.55)
+                        : entryPrice - (stopDistance * 0.55);
+                    SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
+                    tp1StopNivel = 1;
+                    lastDecision = string.Format("TP1_STOP55={0:F2}", tp1Stop);
+                    return;
+                }
             }
 
             // Trailing TP2: escalones hacia el 2:1
@@ -620,6 +643,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             rangoStartBar = 0;
             rangoEndBar = 0;
             breakevenHit = false;
+            tp1StopNivel = 0;
             tp2StopNivel = -1;
             tradeEnded = false;
             tradeEndedByTakeProfit = false;
