@@ -27,6 +27,15 @@ namespace NinjaTrader.NinjaScript.Strategies
         public int MaxTrades { get; set; }
 
         [NinjaScriptProperty]
+        [Range(1, 20)]
+        [Display(Name = "Micro Contratos", GroupName = "1. Risk", Order = 3)]
+        public int MicroContratos { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Modo TP (1a1 o 1a2)", GroupName = "1. Risk", Order = 4)]
+        public TPMode ModoTP { get; set; }
+
+        [NinjaScriptProperty]
         [Display(Name = "Hora Cierre (HH:mm)", GroupName = "2. Sesion", Order = 1)]
         public string HoraCierre { get; set; }
 
@@ -39,6 +48,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         #region Variables
 
         public enum LogMode { Off, Day, Month }
+        public enum TPMode { Solo1a1, Con1a2 }
 
         private enum BotState
         {
@@ -58,6 +68,9 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double rangoPuntos;
         private int rangoStartBar;
         private int rangoEndBar;
+
+        private int qtyTP1;
+        private int qtyTP2;
 
         private bool longUsado;
         private bool shortUsado;
@@ -95,7 +108,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (State == State.SetDefaults)
             {
-                Description = "MNQ10minV2 — Breakout rango 09:32-09:40 con 2 contratos";
+                Description = "MNQ10minV2 — Breakout rango 09:32-09:40";
                 Name = "MNQ10minV2";
                 Calculate = Calculate.OnEachTick;
                 EntriesPerDirection = 2;
@@ -117,8 +130,38 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 ColchonStop = 30;
                 MaxTrades = 2;
+                MicroContratos = 2;
+                ModoTP = TPMode.Con1a2;
                 HoraCierre = "15:50";
                 ModoLog = LogMode.Month;
+            }
+            else if (State == State.Configure)
+            {
+                if (ModoTP == TPMode.Solo1a1)
+                {
+                    qtyTP1 = MicroContratos;
+                    qtyTP2 = 0;
+                    EntriesPerDirection = 1;
+                }
+                else
+                {
+                    if (MicroContratos >= 3)
+                    {
+                        qtyTP1 = MicroContratos - 1;
+                        qtyTP2 = 1;
+                    }
+                    else if (MicroContratos == 2)
+                    {
+                        qtyTP1 = 1;
+                        qtyTP2 = 1;
+                    }
+                    else
+                    {
+                        qtyTP1 = 0;
+                        qtyTP2 = 1;
+                    }
+                    EntriesPerDirection = (qtyTP1 > 0 && qtyTP2 > 0) ? 2 : 1;
+                }
             }
             else if (State == State.DataLoaded)
             {
@@ -342,33 +385,45 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (!longUsado && Close[0] >= rangoHigh)
             {
-                SetStopLoss("TP1Long", CalculationMode.Price, stopLong, false);
-                SetProfitTarget("TP1Long", CalculationMode.Ticks, tpTicks);
-                EnterLong(1, "TP1Long");
+                if (qtyTP1 > 0)
+                {
+                    SetStopLoss("TP1Long", CalculationMode.Price, stopLong, false);
+                    SetProfitTarget("TP1Long", CalculationMode.Ticks, tpTicks);
+                    EnterLong(qtyTP1, "TP1Long");
+                }
 
-                SetStopLoss("TP2Long", CalculationMode.Price, stopLong, false);
-                SetProfitTarget("TP2Long", CalculationMode.Ticks, tp2Ticks);
-                EnterLong(1, "TP2Long");
+                if (qtyTP2 > 0)
+                {
+                    SetStopLoss("TP2Long", CalculationMode.Price, stopLong, false);
+                    SetProfitTarget("TP2Long", CalculationMode.Ticks, tp2Ticks);
+                    EnterLong(qtyTP2, "TP2Long");
+                }
 
                 RemoveDrawObject("BuyLevel");
                 RemoveDrawObject("SellLevel");
-                lastDecision = string.Format("ENTRY_LONG x2 @{0:F2} stop={1:F2}", Close[0], stopLong);
+                lastDecision = string.Format("ENTRY_LONG TP1x{0} TP2x{1} @{2:F2} stop={3:F2}", qtyTP1, qtyTP2, Close[0], stopLong);
                 return;
             }
 
             if (!shortUsado && Close[0] <= rangoLow)
             {
-                SetStopLoss("TP1Short", CalculationMode.Price, stopShort, false);
-                SetProfitTarget("TP1Short", CalculationMode.Ticks, tpTicks);
-                EnterShort(1, "TP1Short");
+                if (qtyTP1 > 0)
+                {
+                    SetStopLoss("TP1Short", CalculationMode.Price, stopShort, false);
+                    SetProfitTarget("TP1Short", CalculationMode.Ticks, tpTicks);
+                    EnterShort(qtyTP1, "TP1Short");
+                }
 
-                SetStopLoss("TP2Short", CalculationMode.Price, stopShort, false);
-                SetProfitTarget("TP2Short", CalculationMode.Ticks, tp2Ticks);
-                EnterShort(1, "TP2Short");
+                if (qtyTP2 > 0)
+                {
+                    SetStopLoss("TP2Short", CalculationMode.Price, stopShort, false);
+                    SetProfitTarget("TP2Short", CalculationMode.Ticks, tp2Ticks);
+                    EnterShort(qtyTP2, "TP2Short");
+                }
 
                 RemoveDrawObject("BuyLevel");
                 RemoveDrawObject("SellLevel");
-                lastDecision = string.Format("ENTRY_SHORT x2 @{0:F2}", Close[0]);
+                lastDecision = string.Format("ENTRY_SHORT TP1x{0} TP2x{1} @{2:F2}", qtyTP1, qtyTP2, Close[0]);
                 return;
             }
 
@@ -397,64 +452,69 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ? Close[0] - entryPrice
                 : entryPrice - Close[0];
 
+            string signalTP1 = tradeDirection == 1 ? "TP1Long" : "TP1Short";
+            string signalTP2 = tradeDirection == 1 ? "TP2Long" : "TP2Short";
+
+            // Breakeven al 65% — aplica a ambos TPs activos
             if (!breakevenHit && unrealPts >= stopDistance * 0.65)
             {
                 double beStop = tradeDirection == 1 ? entryPrice + 5 : entryPrice - 5;
-                string signalTP1 = tradeDirection == 1 ? "TP1Long" : "TP1Short";
-                string signalTP2 = tradeDirection == 1 ? "TP2Long" : "TP2Short";
-                SetStopLoss(signalTP1, CalculationMode.Price, beStop, false);
-                SetStopLoss(signalTP2, CalculationMode.Price, beStop, false);
+                if (qtyTP1 > 0) SetStopLoss(signalTP1, CalculationMode.Price, beStop, false);
+                if (qtyTP2 > 0) SetStopLoss(signalTP2, CalculationMode.Price, beStop, false);
                 breakevenHit = true;
-                lastDecision = string.Format("BREAKEVEN_BOTH stop={0:F2}", beStop);
+                lastDecision = string.Format("BREAKEVEN stop={0:F2}", beStop);
                 return;
             }
 
-            if (breakevenHit && tp2StopNivel < 0 && unrealPts >= stopDistance * 0.80)
+            // Trailing TP1: stop a 55% del stopDistance cuando llega a 80%
+            if (qtyTP1 > 0 && breakevenHit && tp2StopNivel < 0 && unrealPts >= stopDistance * 0.80)
             {
                 double tp1Stop = tradeDirection == 1
                     ? entryPrice + (stopDistance * 0.55)
                     : entryPrice - (stopDistance * 0.55);
-                string signalTP1 = tradeDirection == 1 ? "TP1Long" : "TP1Short";
                 SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
                 tp2StopNivel = 0;
                 lastDecision = string.Format("TP1_STOP55={0:F2}", tp1Stop);
                 return;
             }
 
-            double tp2Target = stopDistance * 2;
-            string tp2Signal = tradeDirection == 1 ? "TP2Long" : "TP2Short";
-
-            if (tp2StopNivel < 3 && unrealPts >= tp2Target * 0.98)
+            // Trailing TP2: escalones hacia el 2:1
+            if (qtyTP2 > 0)
             {
-                double nuevoStop = tradeDirection == 1
-                    ? entryPrice + (tp2Target * 0.95)
-                    : entryPrice - (tp2Target * 0.95);
-                SetStopLoss(tp2Signal, CalculationMode.Price, nuevoStop, false);
-                tp2StopNivel = 3;
-                lastDecision = string.Format("TP2_STOP_98pct stop={0:F2}", nuevoStop);
-                return;
-            }
+                double tp2Target = stopDistance * 2;
 
-            if (tp2StopNivel < 2 && unrealPts >= tp2Target * 0.90)
-            {
-                double nuevoStop = tradeDirection == 1
-                    ? entryPrice + (tp2Target * 0.75)
-                    : entryPrice - (tp2Target * 0.75);
-                SetStopLoss(tp2Signal, CalculationMode.Price, nuevoStop, false);
-                tp2StopNivel = 2;
-                lastDecision = string.Format("TP2_STOP_90pct stop={0:F2}", nuevoStop);
-                return;
-            }
+                if (tp2StopNivel < 3 && unrealPts >= tp2Target * 0.98)
+                {
+                    double nuevoStop = tradeDirection == 1
+                        ? entryPrice + (tp2Target * 0.95)
+                        : entryPrice - (tp2Target * 0.95);
+                    SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
+                    tp2StopNivel = 3;
+                    lastDecision = string.Format("TP2_STOP_98pct stop={0:F2}", nuevoStop);
+                    return;
+                }
 
-            if (tp2StopNivel < 1 && unrealPts >= tp2Target * 0.85)
-            {
-                double nuevoStop = tradeDirection == 1
-                    ? entryPrice + (tp2Target * 0.55)
-                    : entryPrice - (tp2Target * 0.55);
-                SetStopLoss(tp2Signal, CalculationMode.Price, nuevoStop, false);
-                tp2StopNivel = 1;
-                lastDecision = string.Format("TP2_STOP_85pct stop={0:F2}", nuevoStop);
-                return;
+                if (tp2StopNivel < 2 && unrealPts >= tp2Target * 0.90)
+                {
+                    double nuevoStop = tradeDirection == 1
+                        ? entryPrice + (tp2Target * 0.75)
+                        : entryPrice - (tp2Target * 0.75);
+                    SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
+                    tp2StopNivel = 2;
+                    lastDecision = string.Format("TP2_STOP_90pct stop={0:F2}", nuevoStop);
+                    return;
+                }
+
+                if (tp2StopNivel < 1 && unrealPts >= tp2Target * 0.85)
+                {
+                    double nuevoStop = tradeDirection == 1
+                        ? entryPrice + (tp2Target * 0.55)
+                        : entryPrice - (tp2Target * 0.55);
+                    SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
+                    tp2StopNivel = 1;
+                    lastDecision = string.Format("TP2_STOP_85pct stop={0:F2}", nuevoStop);
+                    return;
+                }
             }
 
             lastDecision = string.Format("EN_TRADE {0} entry={1:F2} unreal={2:F2}pts",
@@ -480,10 +540,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 tradeDirection = 1;
                 longUsado = true;
                 shortUsado = true;
-                if (orderName == "TP1Long") tradesToday++;
+                bool countTrade = (qtyTP1 > 0 && orderName == "TP1Long") || (qtyTP1 == 0 && orderName == "TP2Long");
+                if (countTrade) tradesToday++;
                 estado = BotState.EnTrade;
 
-                lastAction = string.Format("FILL LONG {0} @{1:F2}", orderName, price);
+                lastAction = string.Format("FILL LONG {0} x{1} @{2:F2}", orderName, quantity, price);
                 tradeLog.Add(lastAction);
 
                 DateTime entryNY = TimeZoneInfo.ConvertTime(time, easternZone);
@@ -495,10 +556,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 tradeDirection = -1;
                 shortUsado = true;
                 longUsado = true;
-                if (orderName == "TP1Short") tradesToday++;
+                bool countTrade = (qtyTP1 > 0 && orderName == "TP1Short") || (qtyTP1 == 0 && orderName == "TP2Short");
+                if (countTrade) tradesToday++;
                 estado = BotState.EnTrade;
 
-                lastAction = string.Format("FILL SHORT {0} @{1:F2}", orderName, price);
+                lastAction = string.Format("FILL SHORT {0} x{1} @{2:F2}", orderName, quantity, price);
                 tradeLog.Add(lastAction);
 
                 DateTime entryNY = TimeZoneInfo.ConvertTime(time, easternZone);
@@ -526,7 +588,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 dailyPnL += pnl;
                 totalPnL += pnl;
 
-                lastAction = string.Format("EXIT {0} {1} @{2:F2} pnl=${3:F2}", dir, reason, price, pnl);
+                lastAction = string.Format("EXIT {0} {1} x{2} @{3:F2} pnl=${4:F2}", dir, reason, quantity, price, pnl);
                 tradeLog.Add(lastAction);
 
                 DateTime exitNY = TimeZoneInfo.ConvertTime(time, easternZone);
@@ -580,13 +642,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (Position.MarketPosition == MarketPosition.Long)
             {
-                ExitLong("X_" + reason, "TP1Long");
-                ExitLong("X_" + reason, "TP2Long");
+                if (qtyTP1 > 0) ExitLong("X_" + reason, "TP1Long");
+                if (qtyTP2 > 0) ExitLong("X_" + reason, "TP2Long");
             }
             else if (Position.MarketPosition == MarketPosition.Short)
             {
-                ExitShort("X_" + reason, "TP1Short");
-                ExitShort("X_" + reason, "TP2Short");
+                if (qtyTP1 > 0) ExitShort("X_" + reason, "TP1Short");
+                if (qtyTP2 > 0) ExitShort("X_" + reason, "TP2Short");
             }
 
             Draw.Diamond(this, "Exit" + CurrentBar, true, 0, Close[0], Brushes.Yellow);
