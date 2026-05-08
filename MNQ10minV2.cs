@@ -89,6 +89,13 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double totalPnL;
         private int tradesToday;
 
+        private int stopsPuros;
+        private int maxStopsPuros;
+        private int takeProfitsHoy;
+        private int maxTakeProfits;
+        private bool cooldownActivo;
+        private DateTime breakevenExitTime;
+
         private DateTime lastResetDate;
         private TimeZoneInfo easternZone;
         private int horaCierreH;
@@ -141,6 +148,9 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             else if (State == State.Configure)
             {
+                maxStopsPuros = (int)Math.Round((double)MaxTrades / 2, MidpointRounding.AwayFromZero);
+                maxTakeProfits = (int)Math.Round((double)MaxTrades / 2, MidpointRounding.AwayFromZero);
+
                 if (ModoTP == TPMode.Solo1a1)
                 {
                     qtyTP1 = MicroContratos;
@@ -229,7 +239,16 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
+            bool beforeOpen = nyNow.Hour < 9 || (nyNow.Hour == 9 && nyNow.Minute < 30);
             bool afterClose = nyNow.Hour > horaCierreH || (nyNow.Hour == horaCierreH && nyNow.Minute >= horaCierreM);
+            bool fueraDeSesion = beforeOpen || afterClose;
+
+            if (fueraDeSesion && firstTick)
+            {
+                CancelAllPendingOrders();
+                LimpiarDibujosFueraSesion();
+            }
+
             if (afterClose)
             {
                 if (Position.MarketPosition != MarketPosition.Flat)
@@ -280,9 +299,51 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (tradeEndedByTakeProfit)
             {
+                takeProfitsHoy++;
                 tradeEndedByTakeProfit = false;
-                estado = BotState.DiaTerminado;
-                lastDecision = "DIA_TERMINADO_TP";
+
+                if (takeProfitsHoy >= maxTakeProfits)
+                {
+                    estado = BotState.DiaTerminado;
+                    lastDecision = string.Format("DIA_TERMINADO_MAX_TP ({0})", takeProfitsHoy);
+                }
+                else if (tradesToday >= MaxTrades)
+                {
+                    estado = BotState.DiaTerminado;
+                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                }
+                else
+                {
+                    pendingFlip = false;
+                    reentryPriceInRange = false;
+                    cooldownActivo = true;
+                    breakevenExitTime = Time[0];
+                    estado = BotState.OrdenesPuestas;
+                    lastDecision = string.Format("POST_TP_COOLDOWN_50s H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                }
+            }
+            else if (exitReason == "StopLoss")
+            {
+                stopsPuros++;
+                tradeEndedByTakeProfit = false;
+
+                if (stopsPuros >= maxStopsPuros)
+                {
+                    estado = BotState.DiaTerminado;
+                    lastDecision = string.Format("DIA_TERMINADO_MAX_STOPS ({0})", stopsPuros);
+                }
+                else if (tradesToday >= MaxTrades)
+                {
+                    estado = BotState.DiaTerminado;
+                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                }
+                else
+                {
+                    pendingFlip = true;
+                    pendingFlipDirection = prevDirection == 1 ? -1 : 1;
+                    estado = BotState.OrdenesPuestas;
+                    lastDecision = string.Format("FLIP_PENDING dir={0}", pendingFlipDirection == 1 ? "LONG" : "SHORT");
+                }
             }
             else if (tradesToday >= MaxTrades)
             {
@@ -290,21 +351,16 @@ namespace NinjaTrader.NinjaScript.Strategies
                 estado = BotState.DiaTerminado;
                 lastDecision = "DIA_TERMINADO_MAX_TRADES";
             }
-            else if (exitReason == "StopLoss")
-            {
-                tradeEndedByTakeProfit = false;
-                pendingFlip = true;
-                pendingFlipDirection = prevDirection == 1 ? -1 : 1;
-                estado = BotState.OrdenesPuestas;
-                lastDecision = string.Format("FLIP_PENDING dir={0}", pendingFlipDirection == 1 ? "LONG" : "SHORT");
-            }
             else
             {
+                // Breakeven exit — cooldown 50s
                 tradeEndedByTakeProfit = false;
                 pendingFlip = false;
                 reentryPriceInRange = false;
+                cooldownActivo = true;
+                breakevenExitTime = Time[0];
                 estado = BotState.OrdenesPuestas;
-                lastDecision = string.Format("REENTRY_ORDENES H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                lastDecision = string.Format("COOLDOWN_50s H={0:F2} L={1:F2}", rangoHigh, rangoLow);
             }
         }
 
@@ -381,6 +437,17 @@ namespace NinjaTrader.NinjaScript.Strategies
                 estado = BotState.DiaTerminado;
                 lastDecision = "DIA_TERMINADO_MAX_TRADES";
                 return;
+            }
+
+            if (cooldownActivo)
+            {
+                double elapsed = (Time[0] - breakevenExitTime).TotalSeconds;
+                if (elapsed < 50)
+                {
+                    lastDecision = string.Format("COOLDOWN {0:F0}s/50s", elapsed);
+                    return;
+                }
+                cooldownActivo = false;
             }
 
             double stopLong = rangoLow - ColchonStop;
@@ -698,6 +765,9 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             dailyPnL = 0;
             tradesToday = 0;
+            stopsPuros = 0;
+            takeProfitsHoy = 0;
+            cooldownActivo = false;
             estado = BotState.EsperandoRango;
             tradeDirection = 0;
             rangoStartBar = 0;
@@ -721,6 +791,24 @@ namespace NinjaTrader.NinjaScript.Strategies
             reentryPriceInRange = false;
             lastDecision = "NEW_DAY";
             lastAction = "";
+        }
+
+        private void CancelAllPendingOrders()
+        {
+            foreach (Order order in Account.Orders)
+            {
+                if (order.Instrument == Instrument &&
+                    (order.OrderState == OrderState.Working || order.OrderState == OrderState.Accepted))
+                {
+                    CancelOrder(order);
+                }
+            }
+        }
+
+        private void LimpiarDibujosFueraSesion()
+        {
+            RemoveDrawObject("BuyLevel");
+            RemoveDrawObject("SellLevel");
         }
 
         private void FlattenAll(string reason)
