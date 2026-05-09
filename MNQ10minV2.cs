@@ -93,6 +93,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         private int maxStopsPuros;
         private int takeProfitsHoy;
         private int maxTakeProfits;
+        private int breakevensHoy;
+        private int maxBreakevens;
         private bool cooldownActivo;
         private DateTime breakevenExitTime;
 
@@ -150,6 +152,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 maxStopsPuros = (int)Math.Round((double)MaxTrades / 2, MidpointRounding.AwayFromZero);
                 maxTakeProfits = (int)Math.Round((double)MaxTrades / 2, MidpointRounding.AwayFromZero);
+                maxBreakevens = (int)Math.Round((double)MaxTrades / 2, MidpointRounding.AwayFromZero);
 
                 if (ModoTP == TPMode.Solo1a1)
                 {
@@ -353,14 +356,29 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             else
             {
-                // Breakeven exit — cooldown 50s
+                // Breakeven exit
                 tradeEndedByTakeProfit = false;
-                pendingFlip = false;
-                reentryPriceInRange = false;
-                cooldownActivo = true;
-                breakevenExitTime = Time[0];
-                estado = BotState.OrdenesPuestas;
-                lastDecision = string.Format("COOLDOWN_50s H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                breakevensHoy++;
+
+                if (breakevensHoy >= maxBreakevens)
+                {
+                    estado = BotState.DiaTerminado;
+                    lastDecision = string.Format("DIA_TERMINADO_MAX_BE ({0})", breakevensHoy);
+                }
+                else if (tradesToday >= MaxTrades)
+                {
+                    estado = BotState.DiaTerminado;
+                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                }
+                else
+                {
+                    pendingFlip = false;
+                    reentryPriceInRange = false;
+                    cooldownActivo = true;
+                    breakevenExitTime = Time[0];
+                    estado = BotState.OrdenesPuestas;
+                    lastDecision = string.Format("COOLDOWN_50s H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                }
             }
         }
 
@@ -574,8 +592,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             string signalTP1 = tradeDirection == 1 ? "TP1Long" : "TP1Short";
             string signalTP2 = tradeDirection == 1 ? "TP2Long" : "TP2Short";
 
-            // Breakeven al 65% — aplica a ambos TPs activos
-            if (!breakevenHit && unrealPts >= stopDistance * 0.65)
+            // Breakeven al 60% — aplica a ambos TPs activos
+            if (!breakevenHit && unrealPts >= stopDistance * 0.60)
             {
                 double beStop = tradeDirection == 1 ? entryPrice + 5 : entryPrice - 5;
                 if (qtyTP1 > 0) SetStopLoss(signalTP1, CalculationMode.Price, beStop, false);
@@ -585,78 +603,122 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            // Trailing TP1: escalones 80%→55%, 90%→75%, 95%→90%
+            // Trailing TP1: escalones 75%→45%, 85%→60%, 95%→80%, 99%→95%
             if (qtyTP1 > 0 && breakevenHit)
             {
+                if (tp1StopNivel < 4 && unrealPts >= stopDistance * 0.99)
+                {
+                    double tp1Stop = tradeDirection == 1
+                        ? entryPrice + (stopDistance * 0.95)
+                        : entryPrice - (stopDistance * 0.95);
+                    SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
+                    tp1StopNivel = 4;
+                    lastDecision = string.Format("TP1_STOP95={0:F2}", tp1Stop);
+                    return;
+                }
+
                 if (tp1StopNivel < 3 && unrealPts >= stopDistance * 0.95)
                 {
                     double tp1Stop = tradeDirection == 1
-                        ? entryPrice + (stopDistance * 0.90)
-                        : entryPrice - (stopDistance * 0.90);
+                        ? entryPrice + (stopDistance * 0.80)
+                        : entryPrice - (stopDistance * 0.80);
                     SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
                     tp1StopNivel = 3;
-                    lastDecision = string.Format("TP1_STOP90={0:F2}", tp1Stop);
+                    lastDecision = string.Format("TP1_STOP80={0:F2}", tp1Stop);
                     return;
                 }
 
-                if (tp1StopNivel < 2 && unrealPts >= stopDistance * 0.90)
+                if (tp1StopNivel < 2 && unrealPts >= stopDistance * 0.85)
                 {
                     double tp1Stop = tradeDirection == 1
-                        ? entryPrice + (stopDistance * 0.75)
-                        : entryPrice - (stopDistance * 0.75);
+                        ? entryPrice + (stopDistance * 0.60)
+                        : entryPrice - (stopDistance * 0.60);
                     SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
                     tp1StopNivel = 2;
-                    lastDecision = string.Format("TP1_STOP75={0:F2}", tp1Stop);
+                    lastDecision = string.Format("TP1_STOP60={0:F2}", tp1Stop);
                     return;
                 }
 
-                if (tp1StopNivel < 1 && unrealPts >= stopDistance * 0.80)
+                if (tp1StopNivel < 1 && unrealPts >= stopDistance * 0.75)
                 {
                     double tp1Stop = tradeDirection == 1
-                        ? entryPrice + (stopDistance * 0.55)
-                        : entryPrice - (stopDistance * 0.55);
+                        ? entryPrice + (stopDistance * 0.45)
+                        : entryPrice - (stopDistance * 0.45);
                     SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
                     tp1StopNivel = 1;
-                    lastDecision = string.Format("TP1_STOP55={0:F2}", tp1Stop);
+                    lastDecision = string.Format("TP1_STOP45={0:F2}", tp1Stop);
                     return;
                 }
             }
 
-            // Trailing TP2: escalones hacia el 2:1
-            if (qtyTP2 > 0)
+            // Trailing TP2: escalones 50%→25%, 70%→50%, 85%→60%, 90%→75%, 95%→84%, 98%→94%
+            if (qtyTP2 > 0 && breakevenHit)
             {
                 double tp2Target = stopDistance * 2;
 
-                if (tp2StopNivel < 3 && unrealPts >= tp2Target * 0.98)
+                if (tp2StopNivel < 6 && unrealPts >= tp2Target * 0.98)
                 {
                     double nuevoStop = tradeDirection == 1
-                        ? entryPrice + (tp2Target * 0.95)
-                        : entryPrice - (tp2Target * 0.95);
+                        ? entryPrice + (tp2Target * 0.94)
+                        : entryPrice - (tp2Target * 0.94);
                     SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
-                    tp2StopNivel = 3;
-                    lastDecision = string.Format("TP2_STOP_98pct stop={0:F2}", nuevoStop);
+                    tp2StopNivel = 6;
+                    lastDecision = string.Format("TP2_STOP94={0:F2}", nuevoStop);
                     return;
                 }
 
-                if (tp2StopNivel < 2 && unrealPts >= tp2Target * 0.90)
+                if (tp2StopNivel < 5 && unrealPts >= tp2Target * 0.95)
+                {
+                    double nuevoStop = tradeDirection == 1
+                        ? entryPrice + (tp2Target * 0.84)
+                        : entryPrice - (tp2Target * 0.84);
+                    SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
+                    tp2StopNivel = 5;
+                    lastDecision = string.Format("TP2_STOP84={0:F2}", nuevoStop);
+                    return;
+                }
+
+                if (tp2StopNivel < 4 && unrealPts >= tp2Target * 0.90)
                 {
                     double nuevoStop = tradeDirection == 1
                         ? entryPrice + (tp2Target * 0.75)
                         : entryPrice - (tp2Target * 0.75);
                     SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
-                    tp2StopNivel = 2;
-                    lastDecision = string.Format("TP2_STOP_90pct stop={0:F2}", nuevoStop);
+                    tp2StopNivel = 4;
+                    lastDecision = string.Format("TP2_STOP75={0:F2}", nuevoStop);
                     return;
                 }
 
-                if (tp2StopNivel < 1 && unrealPts >= tp2Target * 0.85)
+                if (tp2StopNivel < 3 && unrealPts >= tp2Target * 0.85)
                 {
                     double nuevoStop = tradeDirection == 1
-                        ? entryPrice + (tp2Target * 0.55)
-                        : entryPrice - (tp2Target * 0.55);
+                        ? entryPrice + (tp2Target * 0.60)
+                        : entryPrice - (tp2Target * 0.60);
+                    SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
+                    tp2StopNivel = 3;
+                    lastDecision = string.Format("TP2_STOP60={0:F2}", nuevoStop);
+                    return;
+                }
+
+                if (tp2StopNivel < 2 && unrealPts >= tp2Target * 0.70)
+                {
+                    double nuevoStop = tradeDirection == 1
+                        ? entryPrice + (tp2Target * 0.50)
+                        : entryPrice - (tp2Target * 0.50);
+                    SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
+                    tp2StopNivel = 2;
+                    lastDecision = string.Format("TP2_STOP50={0:F2}", nuevoStop);
+                    return;
+                }
+
+                if (tp2StopNivel < 1 && unrealPts >= tp2Target * 0.50)
+                {
+                    double nuevoStop = tradeDirection == 1
+                        ? entryPrice + (tp2Target * 0.25)
+                        : entryPrice - (tp2Target * 0.25);
                     SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
                     tp2StopNivel = 1;
-                    lastDecision = string.Format("TP2_STOP_85pct stop={0:F2}", nuevoStop);
+                    lastDecision = string.Format("TP2_STOP25={0:F2}", nuevoStop);
                     return;
                 }
             }
@@ -767,6 +829,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradesToday = 0;
             stopsPuros = 0;
             takeProfitsHoy = 0;
+            breakevensHoy = 0;
             cooldownActivo = false;
             estado = BotState.EsperandoRango;
             tradeDirection = 0;
