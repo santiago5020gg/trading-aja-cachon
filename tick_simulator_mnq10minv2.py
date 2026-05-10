@@ -25,12 +25,12 @@ def parse_args():
     parser.add_argument("--colchon", type=int, default=5, help="ColchonStop in points (default: 5)")
     parser.add_argument("--trades", type=int, default=2, help="MaxTrades per day (default: 2)")
     parser.add_argument("--contratos", type=int, default=2, help="MicroContratos (default: 2)")
-    parser.add_argument("--modo", choices=["1a1", "1a2"], default="1a2", help="TP mode (default: 1a2)")
+    parser.add_argument("--modo", choices=["1a1", "1a2"], default="1a1", help="TP mode (default: 1a2)")
     parser.add_argument("--cierre", type=str, default="15:50", help="Hora cierre HH:MM ET (default: 15:50)")
     parser.add_argument("--utc-offset", type=int, default=None, help="Hours to subtract for ET (auto-detected from date if omitted: 5=EST, 4=EDT)")
     parser.add_argument("--output-dir", type=str, default="sim_output", help="Output directory (default: sim_output)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show extra detail")
-    parser.add_argument("file", help="Tick .txt file path")
+    parser.add_argument("file", nargs="?", default="historicos test/MNQ 03-26-enero-febrero-marzo.Last.txt", help="Tick .txt file path")
     return parser.parse_args()
 
 
@@ -888,26 +888,57 @@ class TickSimulator:
 
     def _print_summary(self):
         """Print summary to stdout."""
+        MESES = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo",
+                 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre",
+                 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
+
+        # Group by month, only days with trades > 0
+        months = {}
+        for row in self.daily_rows:
+            date, daily, total, trades, rango = row
+            if trades == 0:
+                continue
+            year = int(date[:4])
+            month = int(date[5:7])
+            day = int(date[8:10])
+            key = (year, month)
+            if key not in months:
+                months[key] = []
+            months[key].append((day, daily, trades))
+
         print()
         print("=" * 80)
         print("RESUMEN")
         print("=" * 80)
 
-        for row in self.daily_rows:
-            date, daily, total, trades, rango = row
-            print(f"  {date}: PnL=${daily:.2f} | Trades={trades} | Rango={rango:.2f}pts | Acum=${total:.2f}")
+        grand_total_pnl = 0.0
+        grand_total_trades = 0
+
+        for (year, month) in sorted(months.keys()):
+            rows = months[(year, month)]
+            print()
+            print(f"{MESES[month]} {year}")
+            print()
+            print(f"  {'dia':<5} {'PnL':<12} {'#trades':<9} {'acumulado'}")
+            acum = 0.0
+            month_trades = 0
+            for day, daily, trades in rows:
+                acum += daily
+                month_trades += trades
+                print(f"  {day:<5} ${daily:<11.2f} {trades:<9} ${acum:.2f}")
+            grand_total_pnl += acum
+            grand_total_trades += month_trades
+            print(f"  {'---':<5} {'---':<12} {'---':<9} ---")
+            print(f"  {'MES':<5} ${acum:<11.2f} {month_trades:<9}")
 
         print()
-        total_days = len(self.daily_rows)
-        total_trades = sum(r[3] for r in self.daily_rows)
-        total_pnl = self.daily_rows[-1][2] if self.daily_rows else 0.0
-        print(f"  Dias: {total_days}")
-        print(f"  Total Trades: {total_trades}")
-        print(f"  PnL Total: ${total_pnl:.2f}")
-
-        if self.daily_rows:
-            avg = sum(r[1] for r in self.daily_rows) / total_days
-            print(f"  Promedio diario: ${avg:.2f}")
+        print("=" * 80)
+        total_days = sum(len(v) for v in months.values())
+        print(f"  Dias operados: {total_days}")
+        print(f"  Total Trades: {grand_total_trades}")
+        print(f"  PnL Total: ${grand_total_pnl:.2f}")
+        if total_days > 0:
+            print(f"  Promedio diario: ${grand_total_pnl / total_days:.2f}")
 
         print()
         print("Archivos generados en:", self.output_dir)

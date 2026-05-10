@@ -25,7 +25,7 @@ Leer `MNQ10minV2.cs` completo y extraer:
 - **Ventana de rango:** minutos inicio/fin (actualmente 09:32-09:40 en C#, mapea a ticks 09:30-09:39 en Python)
 - **Logica de entrada:** breakout, flip, re-entry, cooldown
 - **Trailing TP1:** escalones y porcentajes (actualmente 75%->45%, 85%->60%, 95%->80%, 99%->95%)
-- **Trailing TP2:** escalones y porcentajes (actualmente 50%->25%, 70%->50%, 85%->60%, 90%->75%, 95%->84%, 98%->94%)
+- **Trailing TP2:** escalones y porcentajes (actualmente 50%->18%, 70%->50%, 85%->60%, 90%->70%, 95%->84%, 98%->94%)
 - **Breakeven:** umbral (actualmente 60%) y offset (actualmente +5 pts)
 - **Gestion de riesgo:** maxStops, maxTPs, maxBEs, transiciones post-trade
 - **PnL:** formula de calculo (POINT_VALUE = $2 por punto por micro contrato)
