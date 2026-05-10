@@ -651,7 +651,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
             }
 
-            // Trailing TP2: escalones 50%→25%, 70%→50%, 85%→60%, 90%→75%, 95%→84%, 98%→94%
+            // Trailing TP2: escalones 50%→18%, 70%→50%, 85%→60%, 90%→70%, 95%→84%, 98%→94%
             if (qtyTP2 > 0 && breakevenHit)
             {
                 double tp2Target = stopDistance * 2;
@@ -681,11 +681,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (tp2StopNivel < 4 && unrealPts >= tp2Target * 0.90)
                 {
                     double nuevoStop = tradeDirection == 1
-                        ? entryPrice + (tp2Target * 0.75)
-                        : entryPrice - (tp2Target * 0.75);
+                        ? entryPrice + (tp2Target * 0.70)
+                        : entryPrice - (tp2Target * 0.70);
                     SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
                     tp2StopNivel = 4;
-                    lastDecision = string.Format("TP2_STOP75={0:F2}", nuevoStop);
+                    lastDecision = string.Format("TP2_STOP70={0:F2}", nuevoStop);
                     return;
                 }
 
@@ -714,11 +714,11 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (tp2StopNivel < 1 && unrealPts >= tp2Target * 0.50)
                 {
                     double nuevoStop = tradeDirection == 1
-                        ? entryPrice + (tp2Target * 0.25)
-                        : entryPrice - (tp2Target * 0.25);
+                        ? entryPrice + (tp2Target * 0.18)
+                        : entryPrice - (tp2Target * 0.18);
                     SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
                     tp2StopNivel = 1;
-                    lastDecision = string.Format("TP2_STOP25={0:F2}", nuevoStop);
+                    lastDecision = string.Format("TP2_STOP18={0:F2}", nuevoStop);
                     return;
                 }
             }

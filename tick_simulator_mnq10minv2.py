@@ -27,7 +27,7 @@ def parse_args():
     parser.add_argument("--contratos", type=int, default=2, help="MicroContratos (default: 2)")
     parser.add_argument("--modo", choices=["1a1", "1a2"], default="1a2", help="TP mode (default: 1a2)")
     parser.add_argument("--cierre", type=str, default="15:50", help="Hora cierre HH:MM ET (default: 15:50)")
-    parser.add_argument("--utc-offset", type=int, default=4, help="Hours to subtract for ET (default: 4)")
+    parser.add_argument("--utc-offset", type=int, default=None, help="Hours to subtract for ET (auto-detected from date if omitted: 5=EST, 4=EDT)")
     parser.add_argument("--output-dir", type=str, default="sim_output", help="Output directory (default: sim_output)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show extra detail")
     parser.add_argument("file", help="Tick .txt file path")
@@ -38,6 +38,33 @@ def parse_args():
 
 TICK_SIZE = 0.25
 POINT_VALUE = 2.0  # $2 per point per micro contract
+
+
+def _dst_start(year):
+    """Second Sunday of March — DST starts at 2:00 AM."""
+    # March 1 day-of-week: 0=Mon ... 6=Sun
+    import calendar
+    dow_mar1 = calendar.weekday(year, 3, 1)
+    first_sun = 1 + (6 - dow_mar1) % 7
+    return (3, first_sun + 7)  # (month, day)
+
+
+def _dst_end(year):
+    """First Sunday of November — DST ends at 2:00 AM."""
+    import calendar
+    dow_nov1 = calendar.weekday(year, 11, 1)
+    first_sun = 1 + (6 - dow_nov1) % 7
+    return (11, first_sun)  # (month, day)
+
+
+def get_utc_offset_for_date(year, month, day):
+    """Return UTC offset for US Eastern: 5 (EST) or 4 (EDT)."""
+    dst_start_month, dst_start_day = _dst_start(year)
+    dst_end_month, dst_end_day = _dst_end(year)
+    date_val = (month, day)
+    if (dst_start_month, dst_start_day) <= date_val < (dst_end_month, dst_end_day):
+        return 4  # EDT
+    return 5  # EST
 
 
 def round_to_tick(price):
@@ -55,7 +82,9 @@ class TickSimulator:
         self.max_trades = max_trades
         self.micro_contratos = micro_contratos
         self.modo_tp = modo_tp
-        self.utc_offset = utc_offset
+        self.utc_offset = utc_offset  # None = auto-detect per date
+        self._cached_offset_date = None
+        self._cached_offset_value = 4
         self.output_dir = output_dir
         self.verbose = verbose
 
@@ -151,7 +180,10 @@ class TickSimulator:
         print(f"  Modo TP: {self.modo_tp} (TP1 x{self.qty_tp1}, TP2 x{self.qty_tp2})")
         print(f"  Max Stops: {self.max_stops_puros} | Max TPs: {self.max_take_profits} | Max BEs: {self.max_breakevens}")
         print(f"  Hora Cierre: {self.hora_cierre_h:02d}:{self.hora_cierre_m:02d} ET")
-        print(f"  UTC Offset: -{self.utc_offset}h")
+        if self.utc_offset is not None:
+            print(f"  UTC Offset: -{self.utc_offset}h (manual)")
+        else:
+            print(f"  UTC Offset: auto (EST=5 / EDT=4 segun fecha)")
         print(f"  Archivo: {filepath}")
         print()
 
@@ -194,8 +226,15 @@ class TickSimulator:
 
                 # Convert UTC to ET
                 # Build ET time directly (avoid datetime overhead for speed)
-                # Simple subtraction: handle day rollback
-                et_hour = hour - self.utc_offset
+                # Auto-detect offset if not manually specified
+                if self.utc_offset is not None:
+                    offset = self.utc_offset
+                else:
+                    if self._cached_offset_date != (year, month, day):
+                        self._cached_offset_date = (year, month, day)
+                        self._cached_offset_value = get_utc_offset_for_date(year, month, day)
+                    offset = self._cached_offset_value
+                et_hour = hour - offset
                 et_day = day
                 et_month = month
                 et_year = year
@@ -660,7 +699,7 @@ class TickSimulator:
                     print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP1 trailing nivel 1: stop={self.tp1_stop:.2f}")
                 return
 
-        # Trailing TP2: 50%->25%, 70%->50%, 85%->60%, 90%->75%, 95%->84%, 98%->94%
+        # Trailing TP2: 50%->18%, 70%->50%, 85%->60%, 90%->70%, 95%->84%, 98%->94%
         if self.qty_tp2_active and self.breakeven_hit:
             tp2_target_dist = sd * 2
 
@@ -679,9 +718,9 @@ class TickSimulator:
                     print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP2 trailing nivel 5: stop={self.tp2_stop:.2f}")
                 return
             elif self.tp2_stop_nivel < 4 and unrealized >= tp2_target_dist * 0.90:
-                self.tp2_stop = round_to_tick(entry + (tp2_target_dist * 0.75)) if d == 1 else round_to_tick(entry - (tp2_target_dist * 0.75))
+                self.tp2_stop = round_to_tick(entry + (tp2_target_dist * 0.70)) if d == 1 else round_to_tick(entry - (tp2_target_dist * 0.70))
                 self.tp2_stop_nivel = 4
-                self.last_decision = f"TP2_STOP75={self.tp2_stop:.2f}"
+                self.last_decision = f"TP2_STOP70={self.tp2_stop:.2f}"
                 if self.verbose:
                     print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP2 trailing nivel 4: stop={self.tp2_stop:.2f}")
                 return
@@ -700,9 +739,9 @@ class TickSimulator:
                     print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP2 trailing nivel 2: stop={self.tp2_stop:.2f}")
                 return
             elif self.tp2_stop_nivel < 1 and unrealized >= tp2_target_dist * 0.50:
-                self.tp2_stop = round_to_tick(entry + (tp2_target_dist * 0.25)) if d == 1 else round_to_tick(entry - (tp2_target_dist * 0.25))
+                self.tp2_stop = round_to_tick(entry + (tp2_target_dist * 0.18)) if d == 1 else round_to_tick(entry - (tp2_target_dist * 0.18))
                 self.tp2_stop_nivel = 1
-                self.last_decision = f"TP2_STOP25={self.tp2_stop:.2f}"
+                self.last_decision = f"TP2_STOP18={self.tp2_stop:.2f}"
                 if self.verbose:
                     print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP2 trailing nivel 1: stop={self.tp2_stop:.2f}")
                 return
