@@ -1,1 +1,6 @@
 node_modules/
+historicos test/
+resultados operaciones/
+sim_output/
+bot/history/
+.claude/settings.local.json
