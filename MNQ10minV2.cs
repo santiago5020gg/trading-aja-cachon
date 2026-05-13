@@ -40,6 +40,10 @@ namespace NinjaTrader.NinjaScript.Strategies
         public TPMode ModoTP { get; set; }
 
         [NinjaScriptProperty]
+        [Display(Name = "Modo Operacion", GroupName = "1. Risk", Order = 6)]
+        public OperationMode ModoOperacion { get; set; }
+
+        [NinjaScriptProperty]
         [Display(Name = "Hora Cierre (HH:mm)", GroupName = "2. Sesion", Order = 1)]
         public string HoraCierre { get; set; }
 
@@ -125,6 +129,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         public enum LogMode { Off, Day, Month }
         public enum TPMode { Solo1a1, Con1a2 }
+        public enum OperationMode { Operar, Visualizar }
 
         private enum BotState
         {
@@ -189,6 +194,15 @@ namespace NinjaTrader.NinjaScript.Strategies
         private string csvDailyPath;
         private string csvBarLogPath;
 
+        // Visualizar mode
+        private bool vizTradeActive;
+        private double vizStopTP1;
+        private double vizStopTP2;
+        private bool vizTP1Active;
+        private bool vizTP2Active;
+        private int vizTradeNum;
+        private string vizPrefix;
+
         #endregion
 
         #region Lifecycle
@@ -222,6 +236,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 MaxTrades = 2;
                 MicroContratos = 2;
                 ModoTP = TPMode.Con1a2;
+                ModoOperacion = OperationMode.Operar;
                 HoraCierre = "15:50";
                 ModoLog = LogMode.Month;
 
@@ -345,7 +360,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (afterClose)
             {
-                if (Position.MarketPosition != MarketPosition.Flat)
+                if (ModoOperacion == OperationMode.Visualizar && vizTradeActive)
+                    VizSalir("CierreForzado");
+                else if (Position.MarketPosition != MarketPosition.Flat)
                     FlattenAll("CierreForzado");
                 estado = BotState.DiaTerminado;
                 lastDecision = "CIERRE_FORZADO";
@@ -382,6 +399,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private void ProcesarFinTrade()
         {
             tradeEnded = false;
+            vizTradeActive = false;
             LimpiarNivelesTrailing();
             int prevDirection = tradeDirection;
             string exitReason = lastExitReason;
@@ -535,6 +553,13 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void MonitorearOrdenes(DateTime nyNow)
         {
+            if (ModoOperacion == OperationMode.Visualizar && vizTradeActive)
+            {
+                estado = BotState.EnTrade;
+                lastDecision = string.Format("VIZ_EN_TRADE {0}", tradeDirection == 1 ? "LONG" : "SHORT");
+                return;
+            }
+
             if (Position.MarketPosition != MarketPosition.Flat)
             {
                 estado = BotState.EnTrade;
@@ -569,37 +594,47 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (pendingFlip)
             {
                 pendingFlip = false;
-                if (pendingFlipDirection == 1)
+                if (ModoOperacion == OperationMode.Visualizar)
                 {
-                    if (qtyTP1 > 0)
-                    {
-                        SetStopLoss("TP1Long", CalculationMode.Price, stopLong, false);
-                        SetProfitTarget("TP1Long", CalculationMode.Ticks, tpTicks);
-                        EnterLong(qtyTP1, "TP1Long");
-                    }
-                    if (qtyTP2 > 0)
-                    {
-                        SetStopLoss("TP2Long", CalculationMode.Price, stopLong, false);
-                        SetProfitTarget("TP2Long", CalculationMode.Ticks, tp2Ticks);
-                        EnterLong(qtyTP2, "TP2Long");
-                    }
-                    lastDecision = string.Format("FLIP_LONG TP1x{0} TP2x{1} @{2:F2} stop={3:F2}", qtyTP1, qtyTP2, Close[0], stopLong);
+                    double flipStop = pendingFlipDirection == 1 ? stopLong : stopShort;
+                    VizEntrar(pendingFlipDirection, Close[0], flipStop);
+                    lastDecision = string.Format("FLIP_{0} VIZ @{1:F2} stop={2:F2}",
+                        pendingFlipDirection == 1 ? "LONG" : "SHORT", Close[0], flipStop);
                 }
                 else
                 {
-                    if (qtyTP1 > 0)
+                    if (pendingFlipDirection == 1)
                     {
-                        SetStopLoss("TP1Short", CalculationMode.Price, stopShort, false);
-                        SetProfitTarget("TP1Short", CalculationMode.Ticks, tpTicks);
-                        EnterShort(qtyTP1, "TP1Short");
+                        if (qtyTP1 > 0)
+                        {
+                            SetStopLoss("TP1Long", CalculationMode.Price, stopLong, false);
+                            SetProfitTarget("TP1Long", CalculationMode.Ticks, tpTicks);
+                            EnterLong(qtyTP1, "TP1Long");
+                        }
+                        if (qtyTP2 > 0)
+                        {
+                            SetStopLoss("TP2Long", CalculationMode.Price, stopLong, false);
+                            SetProfitTarget("TP2Long", CalculationMode.Ticks, tp2Ticks);
+                            EnterLong(qtyTP2, "TP2Long");
+                        }
+                        lastDecision = string.Format("FLIP_LONG TP1x{0} TP2x{1} @{2:F2} stop={3:F2}", qtyTP1, qtyTP2, Close[0], stopLong);
                     }
-                    if (qtyTP2 > 0)
+                    else
                     {
-                        SetStopLoss("TP2Short", CalculationMode.Price, stopShort, false);
-                        SetProfitTarget("TP2Short", CalculationMode.Ticks, tp2Ticks);
-                        EnterShort(qtyTP2, "TP2Short");
+                        if (qtyTP1 > 0)
+                        {
+                            SetStopLoss("TP1Short", CalculationMode.Price, stopShort, false);
+                            SetProfitTarget("TP1Short", CalculationMode.Ticks, tpTicks);
+                            EnterShort(qtyTP1, "TP1Short");
+                        }
+                        if (qtyTP2 > 0)
+                        {
+                            SetStopLoss("TP2Short", CalculationMode.Price, stopShort, false);
+                            SetProfitTarget("TP2Short", CalculationMode.Ticks, tp2Ticks);
+                            EnterShort(qtyTP2, "TP2Short");
+                        }
+                        lastDecision = string.Format("FLIP_SHORT TP1x{0} TP2x{1} @{2:F2} stop={3:F2}", qtyTP1, qtyTP2, Close[0], stopShort);
                     }
-                    lastDecision = string.Format("FLIP_SHORT TP1x{0} TP2x{1} @{2:F2} stop={3:F2}", qtyTP1, qtyTP2, Close[0], stopShort);
                 }
                 return;
             }
@@ -618,18 +653,25 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (Close[0] >= rangoHigh)
             {
-                if (qtyTP1 > 0)
+                if (ModoOperacion == OperationMode.Visualizar)
                 {
-                    SetStopLoss("TP1Long", CalculationMode.Price, stopLong, false);
-                    SetProfitTarget("TP1Long", CalculationMode.Ticks, tpTicks);
-                    EnterLong(qtyTP1, "TP1Long");
+                    VizEntrar(1, Close[0], stopLong);
                 }
-
-                if (qtyTP2 > 0)
+                else
                 {
-                    SetStopLoss("TP2Long", CalculationMode.Price, stopLong, false);
-                    SetProfitTarget("TP2Long", CalculationMode.Ticks, tp2Ticks);
-                    EnterLong(qtyTP2, "TP2Long");
+                    if (qtyTP1 > 0)
+                    {
+                        SetStopLoss("TP1Long", CalculationMode.Price, stopLong, false);
+                        SetProfitTarget("TP1Long", CalculationMode.Ticks, tpTicks);
+                        EnterLong(qtyTP1, "TP1Long");
+                    }
+
+                    if (qtyTP2 > 0)
+                    {
+                        SetStopLoss("TP2Long", CalculationMode.Price, stopLong, false);
+                        SetProfitTarget("TP2Long", CalculationMode.Ticks, tp2Ticks);
+                        EnterLong(qtyTP2, "TP2Long");
+                    }
                 }
 
                 lastDecision = string.Format("ENTRY_LONG TP1x{0} TP2x{1} @{2:F2} stop={3:F2}", qtyTP1, qtyTP2, Close[0], stopLong);
@@ -638,18 +680,25 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (Close[0] <= rangoLow)
             {
-                if (qtyTP1 > 0)
+                if (ModoOperacion == OperationMode.Visualizar)
                 {
-                    SetStopLoss("TP1Short", CalculationMode.Price, stopShort, false);
-                    SetProfitTarget("TP1Short", CalculationMode.Ticks, tpTicks);
-                    EnterShort(qtyTP1, "TP1Short");
+                    VizEntrar(-1, Close[0], stopShort);
                 }
-
-                if (qtyTP2 > 0)
+                else
                 {
-                    SetStopLoss("TP2Short", CalculationMode.Price, stopShort, false);
-                    SetProfitTarget("TP2Short", CalculationMode.Ticks, tp2Ticks);
-                    EnterShort(qtyTP2, "TP2Short");
+                    if (qtyTP1 > 0)
+                    {
+                        SetStopLoss("TP1Short", CalculationMode.Price, stopShort, false);
+                        SetProfitTarget("TP1Short", CalculationMode.Ticks, tpTicks);
+                        EnterShort(qtyTP1, "TP1Short");
+                    }
+
+                    if (qtyTP2 > 0)
+                    {
+                        SetStopLoss("TP2Short", CalculationMode.Price, stopShort, false);
+                        SetProfitTarget("TP2Short", CalculationMode.Ticks, tp2Ticks);
+                        EnterShort(qtyTP2, "TP2Short");
+                    }
                 }
 
                 lastDecision = string.Format("ENTRY_SHORT TP1x{0} TP2x{1} @{2:F2}", qtyTP1, qtyTP2, Close[0]);
@@ -665,6 +714,19 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void MonitorearTrade(DateTime nyNow)
         {
+            if (ModoOperacion == OperationMode.Visualizar)
+            {
+                if (!vizTradeActive)
+                {
+                    tradeEnded = true;
+                    lastExitDirection = tradeDirection;
+                    return;
+                }
+
+                VizMonitorear();
+                return;
+            }
+
             if (Position.MarketPosition == MarketPosition.Flat)
             {
                 if (!tradeEnded)
@@ -957,6 +1019,13 @@ namespace NinjaTrader.NinjaScript.Strategies
             longUsado = false;
             shortUsado = false;
             reentryPriceInRange = false;
+            vizTradeActive = false;
+            vizTP1Active = false;
+            vizTP2Active = false;
+            vizStopTP1 = 0;
+            vizStopTP2 = 0;
+            vizTradeNum = 0;
+            vizPrefix = "";
             lastDecision = "NEW_DAY";
             lastAction = "";
         }
@@ -998,6 +1067,237 @@ namespace NinjaTrader.NinjaScript.Strategies
             LimpiarNivelesTrailing();
             lastAction = string.Format("FLATTEN {0} {1}", dir, reason);
             tradeDirection = 0;
+        }
+
+        private void VizEntrar(int dir, double price, double stopPrice)
+        {
+            vizTradeNum++;
+            vizPrefix = "V" + vizTradeNum + "_";
+            entryPrice = price;
+            tradeDirection = dir;
+            vizTradeActive = true;
+            vizTP1Active = qtyTP1 > 0;
+            vizTP2Active = qtyTP2 > 0;
+            vizStopTP1 = stopPrice;
+            vizStopTP2 = stopPrice;
+            breakevenHit = false;
+            tp1StopNivel = 0;
+            tp2StopNivel = -1;
+            if (dir == 1) { longUsado = true; shortUsado = true; }
+            else { shortUsado = true; longUsado = true; }
+            if (!tradeCounted) { tradesToday++; tradeCounted = true; }
+            estado = BotState.EnTrade;
+
+            // Entry marker (arrow like real trade)
+            if (dir == 1)
+                Draw.ArrowUp(this, vizPrefix + "EntryArrow", true, 0, price - (TickSize * 4), Brushes.Lime);
+            else
+                Draw.ArrowDown(this, vizPrefix + "EntryArrow", true, 0, price + (TickSize * 4), Brushes.Red);
+
+            Draw.HorizontalLine(this, vizPrefix + "Entry", price, Brushes.White, DashStyleHelper.Solid, 2);
+            Draw.Text(this, vizPrefix + "EntryT", dir == 1 ? "LONG" : "SHORT", 0, price, Brushes.White);
+            Draw.HorizontalLine(this, vizPrefix + "Stop", stopPrice, Brushes.Red, DashStyleHelper.Solid, 2);
+            Draw.Text(this, vizPrefix + "StopT", "STOP", 0, stopPrice, Brushes.Red);
+
+            VizDibujarNiveles();
+
+            lastAction = string.Format("VIZ_ENTRY {0} @{1:F2} stop={2:F2}", dir == 1 ? "LONG" : "SHORT", price, stopPrice);
+            tradeLog.Add(lastAction);
+        }
+
+        private void VizMonitorear()
+        {
+            double unrealPts = tradeDirection == 1
+                ? Close[0] - entryPrice
+                : entryPrice - Close[0];
+
+            // --- TP1 contract ---
+            if (vizTP1Active)
+            {
+                // Stop hit on TP1
+                bool tp1Stopped = (tradeDirection == 1 && Close[0] <= vizStopTP1) ||
+                                  (tradeDirection == -1 && Close[0] >= vizStopTP1);
+                if (tp1Stopped)
+                {
+                    vizTP1Active = false;
+                    if (!breakevenHit)
+                        lastExitReason = "StopLoss";
+                    else
+                        lastExitReason = "Breakeven";
+                    Draw.Diamond(this, vizPrefix + "TP1Exit", true, 0, Close[0], Brushes.Red);
+                    Draw.Text(this, vizPrefix + "TP1ExitT", "TP1 " + lastExitReason, 0, Close[0] + (TickSize * 8), Brushes.Red);
+                }
+                // TP1 target hit (1:1)
+                else if (unrealPts >= stopDistance)
+                {
+                    vizTP1Active = false;
+                    lastExitReason = "TakeProfit";
+                    Draw.Diamond(this, vizPrefix + "TP1Exit", true, 0, Close[0], Brushes.Lime);
+                    Draw.Text(this, vizPrefix + "TP1ExitT", "TP1 TP", 0, Close[0] + (TickSize * 8), Brushes.Lime);
+                }
+                else
+                {
+                    // Breakeven at 60%
+                    if (!breakevenHit && unrealPts >= stopDistance * 0.60)
+                    {
+                        double beStop = tradeDirection == 1 ? entryPrice + ColchonBreakeven : entryPrice - ColchonBreakeven;
+                        vizStopTP1 = beStop;
+                        vizStopTP2 = beStop;
+                        breakevenHit = true;
+                        lastDecision = string.Format("VIZ_BE stop={0:F2}", beStop);
+                    }
+
+                    // Trailing TP1
+                    if (breakevenHit)
+                    {
+                        if (tp1StopNivel < 4 && unrealPts >= stopDistance * (TP1Act4 / 100.0))
+                        { vizStopTP1 = tradeDirection == 1 ? entryPrice + (stopDistance * (TP1Stp4 / 100.0)) : entryPrice - (stopDistance * (TP1Stp4 / 100.0)); tp1StopNivel = 4; }
+                        else if (tp1StopNivel < 3 && unrealPts >= stopDistance * (TP1Act3 / 100.0))
+                        { vizStopTP1 = tradeDirection == 1 ? entryPrice + (stopDistance * (TP1Stp3 / 100.0)) : entryPrice - (stopDistance * (TP1Stp3 / 100.0)); tp1StopNivel = 3; }
+                        else if (tp1StopNivel < 2 && unrealPts >= stopDistance * (TP1Act2 / 100.0))
+                        { vizStopTP1 = tradeDirection == 1 ? entryPrice + (stopDistance * (TP1Stp2 / 100.0)) : entryPrice - (stopDistance * (TP1Stp2 / 100.0)); tp1StopNivel = 2; }
+                        else if (tp1StopNivel < 1 && unrealPts >= stopDistance * (TP1Act1 / 100.0))
+                        { vizStopTP1 = tradeDirection == 1 ? entryPrice + (stopDistance * (TP1Stp1 / 100.0)) : entryPrice - (stopDistance * (TP1Stp1 / 100.0)); tp1StopNivel = 1; }
+                    }
+                }
+            }
+
+            // --- TP2 contract ---
+            if (vizTP2Active)
+            {
+                // Stop hit on TP2
+                bool tp2Stopped = (tradeDirection == 1 && Close[0] <= vizStopTP2) ||
+                                  (tradeDirection == -1 && Close[0] >= vizStopTP2);
+                if (tp2Stopped)
+                {
+                    vizTP2Active = false;
+                    Draw.Diamond(this, vizPrefix + "TP2Exit", true, 0, Close[0], Brushes.Orange);
+                    Draw.Text(this, vizPrefix + "TP2ExitT", "TP2 Trail", 0, Close[0] - (TickSize * 8), Brushes.Orange);
+                }
+                // TP2 target hit (1:2)
+                else if (unrealPts >= stopDistance * 2)
+                {
+                    vizTP2Active = false;
+                    lastExitReason = "TakeProfit";
+                    Draw.Diamond(this, vizPrefix + "TP2Exit", true, 0, Close[0], Brushes.Gold);
+                    Draw.Text(this, vizPrefix + "TP2ExitT", "TP2 TP", 0, Close[0] - (TickSize * 8), Brushes.Gold);
+                }
+                else
+                {
+                    // Breakeven (if TP1 not active, BE might not have triggered yet)
+                    if (!breakevenHit && unrealPts >= stopDistance * 0.60)
+                    {
+                        double beStop = tradeDirection == 1 ? entryPrice + ColchonBreakeven : entryPrice - ColchonBreakeven;
+                        vizStopTP2 = beStop;
+                        breakevenHit = true;
+                    }
+
+                    // Trailing TP2
+                    if (breakevenHit)
+                    {
+                        double tp2Target = stopDistance * 2;
+                        if (tp2StopNivel < 6 && unrealPts >= tp2Target * (TP2Act6 / 100.0))
+                        { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp6 / 100.0)) : entryPrice - (tp2Target * (TP2Stp6 / 100.0)); tp2StopNivel = 6; }
+                        else if (tp2StopNivel < 5 && unrealPts >= tp2Target * (TP2Act5 / 100.0))
+                        { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp5 / 100.0)) : entryPrice - (tp2Target * (TP2Stp5 / 100.0)); tp2StopNivel = 5; }
+                        else if (tp2StopNivel < 4 && unrealPts >= tp2Target * (TP2Act4 / 100.0))
+                        { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp4 / 100.0)) : entryPrice - (tp2Target * (TP2Stp4 / 100.0)); tp2StopNivel = 4; }
+                        else if (tp2StopNivel < 3 && unrealPts >= tp2Target * (TP2Act3 / 100.0))
+                        { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp3 / 100.0)) : entryPrice - (tp2Target * (TP2Stp3 / 100.0)); tp2StopNivel = 3; }
+                        else if (tp2StopNivel < 2 && unrealPts >= tp2Target * (TP2Act2 / 100.0))
+                        { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp2 / 100.0)) : entryPrice - (tp2Target * (TP2Stp2 / 100.0)); tp2StopNivel = 2; }
+                        else if (tp2StopNivel < 1 && unrealPts >= tp2Target * (TP2Act1 / 100.0))
+                        { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp1 / 100.0)) : entryPrice - (tp2Target * (TP2Stp1 / 100.0)); tp2StopNivel = 1; }
+                    }
+                }
+            }
+
+            // Both contracts done
+            if (!vizTP1Active && !vizTP2Active)
+            {
+                VizSalir(lastExitReason ?? "StopLoss");
+                return;
+            }
+
+            lastDecision = string.Format("VIZ {0} entry={1:F2} unreal={2:F2} TP1={3} TP2={4}",
+                tradeDirection == 1 ? "L" : "S", entryPrice, unrealPts,
+                vizTP1Active ? "ON" : "OFF", vizTP2Active ? "ON" : "OFF");
+        }
+
+        private void VizSalir(string reason)
+        {
+            vizTradeActive = false;
+            lastExitReason = reason;
+            lastExitDirection = tradeDirection;
+            tradeEnded = true;
+            if (reason == "TakeProfit") tradeEndedByTakeProfit = true;
+
+            // Exit marker (arrow opposite to entry, like real trade)
+            if (tradeDirection == 1)
+                Draw.ArrowDown(this, vizPrefix + "ExitArrow", true, 0, Close[0] + (TickSize * 4), Brushes.Magenta);
+            else
+                Draw.ArrowUp(this, vizPrefix + "ExitArrow", true, 0, Close[0] - (TickSize * 4), Brushes.Magenta);
+
+            Draw.Diamond(this, vizPrefix + "Exit", true, 0, Close[0], Brushes.Yellow);
+            Draw.Text(this, vizPrefix + "ExitT", reason, 0, Close[0], Brushes.Yellow);
+
+            lastAction = string.Format("VIZ_EXIT {0} {1} @{2:F2}", tradeDirection == 1 ? "LONG" : "SHORT", reason, Close[0]);
+            tradeLog.Add(lastAction);
+        }
+
+        private void VizDibujarNiveles()
+        {
+            if (entryPrice == 0 || stopDistance == 0) return;
+
+            // Breakeven activation 60%
+            double beActPrice = tradeDirection == 1
+                ? entryPrice + (stopDistance * 0.60)
+                : entryPrice - (stopDistance * 0.60);
+            Draw.HorizontalLine(this, vizPrefix + "BE", beActPrice, Brushes.Yellow, DashStyleHelper.Dot, 1);
+            Draw.Text(this, vizPrefix + "BET", "60%", 0, beActPrice, Brushes.Yellow);
+
+            // TP1 activaciones
+            if (qtyTP1 > 0)
+            {
+                double[] tp1Acts = { TP1Act1, TP1Act2, TP1Act3, TP1Act4 };
+                for (int i = 0; i < 4; i++)
+                {
+                    double actPrice = tradeDirection == 1
+                        ? entryPrice + (stopDistance * (tp1Acts[i] / 100.0))
+                        : entryPrice - (stopDistance * (tp1Acts[i] / 100.0));
+                    Draw.HorizontalLine(this, vizPrefix + "TP1_" + (i + 1), actPrice, Brushes.Cyan, DashStyleHelper.Dot, 1);
+                    Draw.Text(this, vizPrefix + "TP1_" + (i + 1) + "T", string.Format("{0}%", (int)tp1Acts[i]), 0, actPrice, Brushes.Cyan);
+                }
+
+                // TP1 target line (1:1)
+                double tp1Target = tradeDirection == 1
+                    ? entryPrice + stopDistance
+                    : entryPrice - stopDistance;
+                Draw.HorizontalLine(this, vizPrefix + "TP1Line", tp1Target, Brushes.Lime, DashStyleHelper.Dash, 2);
+                Draw.Text(this, vizPrefix + "TP1LineT", "TP1", 0, tp1Target, Brushes.Lime);
+            }
+
+            // TP2 activaciones
+            if (qtyTP2 > 0)
+            {
+                double tp2Target = stopDistance * 2;
+                double[] tp2Acts = { TP2Act1, TP2Act2, TP2Act3, TP2Act4, TP2Act5, TP2Act6 };
+                for (int i = 0; i < 6; i++)
+                {
+                    double actPrice = tradeDirection == 1
+                        ? entryPrice + (tp2Target * (tp2Acts[i] / 100.0))
+                        : entryPrice - (tp2Target * (tp2Acts[i] / 100.0));
+                    Draw.HorizontalLine(this, vizPrefix + "TP2_" + (i + 1), actPrice, Brushes.Orange, DashStyleHelper.Dot, 1);
+                    Draw.Text(this, vizPrefix + "TP2_" + (i + 1) + "T", string.Format("{0}%", (int)tp2Acts[i]), 0, actPrice, Brushes.Orange);
+                }
+
+                // TP2 target line (1:2)
+                double tp2Line = tradeDirection == 1
+                    ? entryPrice + tp2Target
+                    : entryPrice - tp2Target;
+                Draw.HorizontalLine(this, vizPrefix + "TP2Line", tp2Line, Brushes.Gold, DashStyleHelper.Dash, 2);
+                Draw.Text(this, vizPrefix + "TP2LineT", "TP2", 0, tp2Line, Brushes.Gold);
+            }
         }
 
         private void DibujarNivelesTrailing()
