@@ -23,16 +23,20 @@ namespace NinjaTrader.NinjaScript.Strategies
         public int ColchonStop { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Max Trades/Dia", GroupName = "1. Risk", Order = 2)]
+        [Display(Name = "Colchon Breakeven (pts)", GroupName = "1. Risk", Order = 2)]
+        public int ColchonBreakeven { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Max Trades/Dia", GroupName = "1. Risk", Order = 3)]
         public int MaxTrades { get; set; }
 
         [NinjaScriptProperty]
         [Range(1, 20)]
-        [Display(Name = "Micro Contratos", GroupName = "1. Risk", Order = 3)]
+        [Display(Name = "Micro Contratos", GroupName = "1. Risk", Order = 4)]
         public int MicroContratos { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Modo TP (1a1 o 1a2)", GroupName = "1. Risk", Order = 4)]
+        [Display(Name = "Modo TP (1a1 o 1a2)", GroupName = "1. Risk", Order = 5)]
         public TPMode ModoTP { get; set; }
 
         [NinjaScriptProperty]
@@ -42,6 +46,78 @@ namespace NinjaTrader.NinjaScript.Strategies
         [NinjaScriptProperty]
         [Display(Name = "Modo Log", GroupName = "3. Logging", Order = 1)]
         public LogMode ModoLog { get; set; }
+
+        // --- Trailing TP1 (4 escalones) ---
+        [NinjaScriptProperty]
+        [Display(Name = "TP1 Esc1 Activ (%)", GroupName = "4. Trailing TP1", Order = 1)]
+        public int TP1Act1 { get; set; }
+        [NinjaScriptProperty]
+        [Display(Name = "TP1 Esc1 Stop (%)", GroupName = "4. Trailing TP1", Order = 2)]
+        public int TP1Stp1 { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "TP1 Esc2 Activ (%)", GroupName = "4. Trailing TP1", Order = 3)]
+        public int TP1Act2 { get; set; }
+        [NinjaScriptProperty]
+        [Display(Name = "TP1 Esc2 Stop (%)", GroupName = "4. Trailing TP1", Order = 4)]
+        public int TP1Stp2 { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "TP1 Esc3 Activ (%)", GroupName = "4. Trailing TP1", Order = 5)]
+        public int TP1Act3 { get; set; }
+        [NinjaScriptProperty]
+        [Display(Name = "TP1 Esc3 Stop (%)", GroupName = "4. Trailing TP1", Order = 6)]
+        public int TP1Stp3 { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "TP1 Esc4 Activ (%)", GroupName = "4. Trailing TP1", Order = 7)]
+        public int TP1Act4 { get; set; }
+        [NinjaScriptProperty]
+        [Display(Name = "TP1 Esc4 Stop (%)", GroupName = "4. Trailing TP1", Order = 8)]
+        public int TP1Stp4 { get; set; }
+
+        // --- Trailing TP2 (6 escalones) ---
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc1 Activ (%)", GroupName = "5. Trailing TP2", Order = 1)]
+        public int TP2Act1 { get; set; }
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc1 Stop (%)", GroupName = "5. Trailing TP2", Order = 2)]
+        public int TP2Stp1 { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc2 Activ (%)", GroupName = "5. Trailing TP2", Order = 3)]
+        public int TP2Act2 { get; set; }
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc2 Stop (%)", GroupName = "5. Trailing TP2", Order = 4)]
+        public int TP2Stp2 { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc3 Activ (%)", GroupName = "5. Trailing TP2", Order = 5)]
+        public int TP2Act3 { get; set; }
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc3 Stop (%)", GroupName = "5. Trailing TP2", Order = 6)]
+        public int TP2Stp3 { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc4 Activ (%)", GroupName = "5. Trailing TP2", Order = 7)]
+        public int TP2Act4 { get; set; }
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc4 Stop (%)", GroupName = "5. Trailing TP2", Order = 8)]
+        public int TP2Stp4 { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc5 Activ (%)", GroupName = "5. Trailing TP2", Order = 9)]
+        public int TP2Act5 { get; set; }
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc5 Stop (%)", GroupName = "5. Trailing TP2", Order = 10)]
+        public int TP2Stp5 { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc6 Activ (%)", GroupName = "5. Trailing TP2", Order = 11)]
+        public int TP2Act6 { get; set; }
+        [NinjaScriptProperty]
+        [Display(Name = "TP2 Esc6 Stop (%)", GroupName = "5. Trailing TP2", Order = 12)]
+        public int TP2Stp6 { get; set; }
 
         #endregion
 
@@ -142,11 +218,26 @@ namespace NinjaTrader.NinjaScript.Strategies
                 IsOverlay = true;
 
                 ColchonStop = 5;
+                ColchonBreakeven = 5;
                 MaxTrades = 2;
                 MicroContratos = 2;
                 ModoTP = TPMode.Con1a2;
                 HoraCierre = "15:50";
                 ModoLog = LogMode.Month;
+
+                // Trailing TP1 defaults (activacion% -> stop%)
+                TP1Act1 = 75; TP1Stp1 = 45;
+                TP1Act2 = 85; TP1Stp2 = 60;
+                TP1Act3 = 95; TP1Stp3 = 80;
+                TP1Act4 = 99; TP1Stp4 = 95;
+
+                // Trailing TP2 defaults (activacion% -> stop%)
+                TP2Act1 = 50; TP2Stp1 = 18;
+                TP2Act2 = 70; TP2Stp2 = 50;
+                TP2Act3 = 85; TP2Stp3 = 60;
+                TP2Act4 = 90; TP2Stp4 = 70;
+                TP2Act5 = 95; TP2Stp5 = 84;
+                TP2Act6 = 98; TP2Stp6 = 94;
             }
             else if (State == State.Configure)
             {
@@ -291,6 +382,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private void ProcesarFinTrade()
         {
             tradeEnded = false;
+            LimpiarNivelesTrailing();
             int prevDirection = tradeDirection;
             string exitReason = lastExitReason;
             tradeDirection = 0;
@@ -595,130 +687,141 @@ namespace NinjaTrader.NinjaScript.Strategies
             // Breakeven al 60% — aplica a ambos TPs activos
             if (!breakevenHit && unrealPts >= stopDistance * 0.60)
             {
-                double beStop = tradeDirection == 1 ? entryPrice + 5 : entryPrice - 5;
+                double beStop = tradeDirection == 1 ? entryPrice + ColchonBreakeven : entryPrice - ColchonBreakeven;
                 if (qtyTP1 > 0) SetStopLoss(signalTP1, CalculationMode.Price, beStop, false);
                 if (qtyTP2 > 0) SetStopLoss(signalTP2, CalculationMode.Price, beStop, false);
                 breakevenHit = true;
+                BorrarActivacion("BE_Act");
                 lastDecision = string.Format("BREAKEVEN stop={0:F2}", beStop);
                 return;
             }
 
-            // Trailing TP1: escalones 75%→45%, 85%→60%, 95%→80%, 99%→95%
+            // Trailing TP1: escalones configurables
             if (qtyTP1 > 0 && breakevenHit)
             {
-                if (tp1StopNivel < 4 && unrealPts >= stopDistance * 0.99)
+                if (tp1StopNivel < 4 && unrealPts >= stopDistance * (TP1Act4 / 100.0))
                 {
                     double tp1Stop = tradeDirection == 1
-                        ? entryPrice + (stopDistance * 0.95)
-                        : entryPrice - (stopDistance * 0.95);
+                        ? entryPrice + (stopDistance * (TP1Stp4 / 100.0))
+                        : entryPrice - (stopDistance * (TP1Stp4 / 100.0));
                     SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
                     tp1StopNivel = 4;
-                    lastDecision = string.Format("TP1_STOP95={0:F2}", tp1Stop);
+                    BorrarActivacion("TP1_Act4");
+                    lastDecision = string.Format("TP1_STOP{0}={1:F2}", TP1Stp4, tp1Stop);
                     return;
                 }
 
-                if (tp1StopNivel < 3 && unrealPts >= stopDistance * 0.95)
+                if (tp1StopNivel < 3 && unrealPts >= stopDistance * (TP1Act3 / 100.0))
                 {
                     double tp1Stop = tradeDirection == 1
-                        ? entryPrice + (stopDistance * 0.80)
-                        : entryPrice - (stopDistance * 0.80);
+                        ? entryPrice + (stopDistance * (TP1Stp3 / 100.0))
+                        : entryPrice - (stopDistance * (TP1Stp3 / 100.0));
                     SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
                     tp1StopNivel = 3;
-                    lastDecision = string.Format("TP1_STOP80={0:F2}", tp1Stop);
+                    BorrarActivacion("TP1_Act3");
+                    lastDecision = string.Format("TP1_STOP{0}={1:F2}", TP1Stp3, tp1Stop);
                     return;
                 }
 
-                if (tp1StopNivel < 2 && unrealPts >= stopDistance * 0.85)
+                if (tp1StopNivel < 2 && unrealPts >= stopDistance * (TP1Act2 / 100.0))
                 {
                     double tp1Stop = tradeDirection == 1
-                        ? entryPrice + (stopDistance * 0.60)
-                        : entryPrice - (stopDistance * 0.60);
+                        ? entryPrice + (stopDistance * (TP1Stp2 / 100.0))
+                        : entryPrice - (stopDistance * (TP1Stp2 / 100.0));
                     SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
                     tp1StopNivel = 2;
-                    lastDecision = string.Format("TP1_STOP60={0:F2}", tp1Stop);
+                    BorrarActivacion("TP1_Act2");
+                    lastDecision = string.Format("TP1_STOP{0}={1:F2}", TP1Stp2, tp1Stop);
                     return;
                 }
 
-                if (tp1StopNivel < 1 && unrealPts >= stopDistance * 0.75)
+                if (tp1StopNivel < 1 && unrealPts >= stopDistance * (TP1Act1 / 100.0))
                 {
                     double tp1Stop = tradeDirection == 1
-                        ? entryPrice + (stopDistance * 0.45)
-                        : entryPrice - (stopDistance * 0.45);
+                        ? entryPrice + (stopDistance * (TP1Stp1 / 100.0))
+                        : entryPrice - (stopDistance * (TP1Stp1 / 100.0));
                     SetStopLoss(signalTP1, CalculationMode.Price, tp1Stop, false);
                     tp1StopNivel = 1;
-                    lastDecision = string.Format("TP1_STOP45={0:F2}", tp1Stop);
+                    BorrarActivacion("TP1_Act1");
+                    lastDecision = string.Format("TP1_STOP{0}={1:F2}", TP1Stp1, tp1Stop);
                     return;
                 }
             }
 
-            // Trailing TP2: escalones 50%→18%, 70%→50%, 85%→60%, 90%→70%, 95%→84%, 98%→94%
+            // Trailing TP2: escalones configurables
             if (qtyTP2 > 0 && breakevenHit)
             {
                 double tp2Target = stopDistance * 2;
 
-                if (tp2StopNivel < 6 && unrealPts >= tp2Target * 0.98)
+                if (tp2StopNivel < 6 && unrealPts >= tp2Target * (TP2Act6 / 100.0))
                 {
                     double nuevoStop = tradeDirection == 1
-                        ? entryPrice + (tp2Target * 0.94)
-                        : entryPrice - (tp2Target * 0.94);
+                        ? entryPrice + (tp2Target * (TP2Stp6 / 100.0))
+                        : entryPrice - (tp2Target * (TP2Stp6 / 100.0));
                     SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
                     tp2StopNivel = 6;
-                    lastDecision = string.Format("TP2_STOP94={0:F2}", nuevoStop);
+                    BorrarActivacion("TP2_Act6");
+                    lastDecision = string.Format("TP2_STOP{0}={1:F2}", TP2Stp6, nuevoStop);
                     return;
                 }
 
-                if (tp2StopNivel < 5 && unrealPts >= tp2Target * 0.95)
+                if (tp2StopNivel < 5 && unrealPts >= tp2Target * (TP2Act5 / 100.0))
                 {
                     double nuevoStop = tradeDirection == 1
-                        ? entryPrice + (tp2Target * 0.84)
-                        : entryPrice - (tp2Target * 0.84);
+                        ? entryPrice + (tp2Target * (TP2Stp5 / 100.0))
+                        : entryPrice - (tp2Target * (TP2Stp5 / 100.0));
                     SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
                     tp2StopNivel = 5;
-                    lastDecision = string.Format("TP2_STOP84={0:F2}", nuevoStop);
+                    BorrarActivacion("TP2_Act5");
+                    lastDecision = string.Format("TP2_STOP{0}={1:F2}", TP2Stp5, nuevoStop);
                     return;
                 }
 
-                if (tp2StopNivel < 4 && unrealPts >= tp2Target * 0.90)
+                if (tp2StopNivel < 4 && unrealPts >= tp2Target * (TP2Act4 / 100.0))
                 {
                     double nuevoStop = tradeDirection == 1
-                        ? entryPrice + (tp2Target * 0.70)
-                        : entryPrice - (tp2Target * 0.70);
+                        ? entryPrice + (tp2Target * (TP2Stp4 / 100.0))
+                        : entryPrice - (tp2Target * (TP2Stp4 / 100.0));
                     SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
                     tp2StopNivel = 4;
-                    lastDecision = string.Format("TP2_STOP70={0:F2}", nuevoStop);
+                    BorrarActivacion("TP2_Act4");
+                    lastDecision = string.Format("TP2_STOP{0}={1:F2}", TP2Stp4, nuevoStop);
                     return;
                 }
 
-                if (tp2StopNivel < 3 && unrealPts >= tp2Target * 0.85)
+                if (tp2StopNivel < 3 && unrealPts >= tp2Target * (TP2Act3 / 100.0))
                 {
                     double nuevoStop = tradeDirection == 1
-                        ? entryPrice + (tp2Target * 0.60)
-                        : entryPrice - (tp2Target * 0.60);
+                        ? entryPrice + (tp2Target * (TP2Stp3 / 100.0))
+                        : entryPrice - (tp2Target * (TP2Stp3 / 100.0));
                     SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
                     tp2StopNivel = 3;
-                    lastDecision = string.Format("TP2_STOP60={0:F2}", nuevoStop);
+                    BorrarActivacion("TP2_Act3");
+                    lastDecision = string.Format("TP2_STOP{0}={1:F2}", TP2Stp3, nuevoStop);
                     return;
                 }
 
-                if (tp2StopNivel < 2 && unrealPts >= tp2Target * 0.70)
+                if (tp2StopNivel < 2 && unrealPts >= tp2Target * (TP2Act2 / 100.0))
                 {
                     double nuevoStop = tradeDirection == 1
-                        ? entryPrice + (tp2Target * 0.50)
-                        : entryPrice - (tp2Target * 0.50);
+                        ? entryPrice + (tp2Target * (TP2Stp2 / 100.0))
+                        : entryPrice - (tp2Target * (TP2Stp2 / 100.0));
                     SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
                     tp2StopNivel = 2;
-                    lastDecision = string.Format("TP2_STOP50={0:F2}", nuevoStop);
+                    BorrarActivacion("TP2_Act2");
+                    lastDecision = string.Format("TP2_STOP{0}={1:F2}", TP2Stp2, nuevoStop);
                     return;
                 }
 
-                if (tp2StopNivel < 1 && unrealPts >= tp2Target * 0.50)
+                if (tp2StopNivel < 1 && unrealPts >= tp2Target * (TP2Act1 / 100.0))
                 {
                     double nuevoStop = tradeDirection == 1
-                        ? entryPrice + (tp2Target * 0.18)
-                        : entryPrice - (tp2Target * 0.18);
+                        ? entryPrice + (tp2Target * (TP2Stp1 / 100.0))
+                        : entryPrice - (tp2Target * (TP2Stp1 / 100.0));
                     SetStopLoss(signalTP2, CalculationMode.Price, nuevoStop, false);
                     tp2StopNivel = 1;
-                    lastDecision = string.Format("TP2_STOP18={0:F2}", nuevoStop);
+                    BorrarActivacion("TP2_Act1");
+                    lastDecision = string.Format("TP2_STOP{0}={1:F2}", TP2Stp1, nuevoStop);
                     return;
                 }
             }
@@ -755,6 +858,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 lastAction = string.Format("FILL LONG {0} x{1} @{2:F2}", orderName, quantity, price);
                 tradeLog.Add(lastAction);
+                DibujarNivelesTrailing();
 
                 DateTime entryNY = TimeZoneInfo.ConvertTime(time, easternZone);
                 LogTradeCsv(entryNY, "ENTRY", "LONG", price, 0, orderName);
@@ -774,6 +878,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 lastAction = string.Format("FILL SHORT {0} x{1} @{2:F2}", orderName, quantity, price);
                 tradeLog.Add(lastAction);
+                DibujarNivelesTrailing();
 
                 DateTime entryNY = TimeZoneInfo.ConvertTime(time, easternZone);
                 LogTradeCsv(entryNY, "ENTRY", "SHORT", price, 0, orderName);
@@ -890,8 +995,83 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             Draw.Diamond(this, "Exit" + CurrentBar, true, 0, Close[0], Brushes.Yellow);
+            LimpiarNivelesTrailing();
             lastAction = string.Format("FLATTEN {0} {1}", dir, reason);
             tradeDirection = 0;
+        }
+
+        private void DibujarNivelesTrailing()
+        {
+            if (entryPrice == 0 || stopDistance == 0) return;
+
+            // Breakeven: activacion 60%
+            if (!breakevenHit)
+            {
+                double beActPrice = tradeDirection == 1
+                    ? entryPrice + (stopDistance * 0.60)
+                    : entryPrice - (stopDistance * 0.60);
+                Draw.HorizontalLine(this, "BE_Act", beActPrice, Brushes.Yellow, DashStyleHelper.Dot, 1);
+                Draw.Text(this, "BE_ActT", "60%", 0, beActPrice, Brushes.Yellow);
+            }
+
+            // TP1 activaciones
+            if (qtyTP1 > 0)
+            {
+                double[] tp1Acts = { TP1Act1, TP1Act2, TP1Act3, TP1Act4 };
+
+                for (int i = 0; i < 4; i++)
+                {
+                    if (tp1StopNivel > i) continue;
+                    double actPrice = tradeDirection == 1
+                        ? entryPrice + (stopDistance * (tp1Acts[i] / 100.0))
+                        : entryPrice - (stopDistance * (tp1Acts[i] / 100.0));
+
+                    string actTag = "TP1_Act" + (i + 1);
+                    Draw.HorizontalLine(this, actTag, actPrice, Brushes.Cyan, DashStyleHelper.Dot, 1);
+                    Draw.Text(this, actTag + "T", string.Format("{0}%", (int)tp1Acts[i]), 0, actPrice, Brushes.Cyan);
+                }
+            }
+
+            // TP2 activaciones
+            if (qtyTP2 > 0)
+            {
+                double tp2Target = stopDistance * 2;
+                double[] tp2Acts = { TP2Act1, TP2Act2, TP2Act3, TP2Act4, TP2Act5, TP2Act6 };
+
+                for (int i = 0; i < 6; i++)
+                {
+                    if (tp2StopNivel > i) continue;
+                    double actPrice = tradeDirection == 1
+                        ? entryPrice + (tp2Target * (tp2Acts[i] / 100.0))
+                        : entryPrice - (tp2Target * (tp2Acts[i] / 100.0));
+
+                    string actTag = "TP2_Act" + (i + 1);
+                    Draw.HorizontalLine(this, actTag, actPrice, Brushes.Orange, DashStyleHelper.Dot, 1);
+                    Draw.Text(this, actTag + "T", string.Format("{0}%", (int)tp2Acts[i]), 0, actPrice, Brushes.Orange);
+                }
+            }
+        }
+
+        private void BorrarActivacion(string tag)
+        {
+            RemoveDrawObject(tag);
+            RemoveDrawObject(tag + "T");
+        }
+
+        private void LimpiarNivelesTrailing()
+        {
+            RemoveDrawObject("BE_Act");
+            RemoveDrawObject("BE_ActT");
+            for (int i = 1; i <= 4; i++)
+            {
+                RemoveDrawObject("TP1_Act" + i);
+                RemoveDrawObject("TP1_Act" + i + "T");
+            }
+            for (int i = 1; i <= 6; i++)
+            {
+                RemoveDrawObject("TP2_Act" + i);
+                RemoveDrawObject("TP2_Act" + i + "T");
+            }
         }
 
         #endregion
