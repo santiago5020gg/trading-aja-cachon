@@ -1099,6 +1099,17 @@ namespace NinjaTrader.NinjaScript.Strategies
             Draw.HorizontalLine(this, vizPrefix + "Stop", stopPrice, Brushes.Red, DashStyleHelper.Solid, 2);
             Draw.Text(this, vizPrefix + "StopT", "STOP", 0, stopPrice, Brushes.Red);
 
+            if (vizTP1Active)
+            {
+                Draw.HorizontalLine(this, vizPrefix + "StpTP1", stopPrice, Brushes.Red, DashStyleHelper.Solid, 1);
+                Draw.Text(this, vizPrefix + "StpTP1T", "STP TP1", 0, stopPrice, Brushes.Cyan);
+            }
+            if (vizTP2Active)
+            {
+                Draw.HorizontalLine(this, vizPrefix + "StpTP2", stopPrice, Brushes.Red, DashStyleHelper.Solid, 1);
+                Draw.Text(this, vizPrefix + "StpTP2T", "STP TP2", 0, stopPrice, Brushes.Orange);
+            }
+
             VizDibujarNiveles();
 
             lastAction = string.Format("VIZ_ENTRY {0} @{1:F2} stop={2:F2}", dir == 1 ? "LONG" : "SHORT", price, stopPrice);
@@ -1111,33 +1122,39 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ? Close[0] - entryPrice
                 : entryPrice - Close[0];
 
+            int prevTP1Nivel = tp1StopNivel;
+            int prevTP2Nivel = tp2StopNivel;
+            bool prevBE = breakevenHit;
+
             // --- TP1 contract ---
             if (vizTP1Active)
             {
-                // Stop hit on TP1
                 bool tp1Stopped = (tradeDirection == 1 && Close[0] <= vizStopTP1) ||
                                   (tradeDirection == -1 && Close[0] >= vizStopTP1);
                 if (tp1Stopped)
                 {
                     vizTP1Active = false;
-                    if (!breakevenHit)
-                        lastExitReason = "StopLoss";
-                    else
-                        lastExitReason = "Breakeven";
-                    Draw.Diamond(this, vizPrefix + "TP1Exit", true, 0, Close[0], Brushes.Red);
-                    Draw.Text(this, vizPrefix + "TP1ExitT", "TP1 " + lastExitReason, 0, Close[0] + (TickSize * 8), Brushes.Red);
+                    string tp1Reason;
+                    Brush tp1Color;
+                    if (tp1StopNivel > 0) { tp1Reason = "TP1 Trailing"; tp1Color = Brushes.Cyan; lastExitReason = "Trailing"; }
+                    else if (breakevenHit) { tp1Reason = "TP1 BE"; tp1Color = Brushes.Yellow; lastExitReason = "Breakeven"; }
+                    else { tp1Reason = "TP1 SL"; tp1Color = Brushes.Red; lastExitReason = "StopLoss"; }
+                    Draw.Diamond(this, vizPrefix + "TP1Exit", true, 0, Close[0], Brushes.White);
+                    Draw.Text(this, vizPrefix + "TP1ExitT", tp1Reason, 0, Close[0] + (TickSize * 8), tp1Color);
+                    RemoveDrawObject(vizPrefix + "StpTP1");
+                    RemoveDrawObject(vizPrefix + "StpTP1T");
                 }
-                // TP1 target hit (1:1)
                 else if (unrealPts >= stopDistance)
                 {
                     vizTP1Active = false;
                     lastExitReason = "TakeProfit";
-                    Draw.Diamond(this, vizPrefix + "TP1Exit", true, 0, Close[0], Brushes.Lime);
+                    Draw.Diamond(this, vizPrefix + "TP1Exit", true, 0, Close[0], Brushes.White);
                     Draw.Text(this, vizPrefix + "TP1ExitT", "TP1 TP", 0, Close[0] + (TickSize * 8), Brushes.Lime);
+                    RemoveDrawObject(vizPrefix + "StpTP1");
+                    RemoveDrawObject(vizPrefix + "StpTP1T");
                 }
                 else
                 {
-                    // Breakeven at 60%
                     if (!breakevenHit && unrealPts >= stopDistance * 0.60)
                     {
                         double beStop = tradeDirection == 1 ? entryPrice + ColchonBreakeven : entryPrice - ColchonBreakeven;
@@ -1147,7 +1164,6 @@ namespace NinjaTrader.NinjaScript.Strategies
                         lastDecision = string.Format("VIZ_BE stop={0:F2}", beStop);
                     }
 
-                    // Trailing TP1
                     if (breakevenHit)
                     {
                         if (tp1StopNivel < 4 && unrealPts >= stopDistance * (TP1Act4 / 100.0))
@@ -1165,26 +1181,32 @@ namespace NinjaTrader.NinjaScript.Strategies
             // --- TP2 contract ---
             if (vizTP2Active)
             {
-                // Stop hit on TP2
                 bool tp2Stopped = (tradeDirection == 1 && Close[0] <= vizStopTP2) ||
                                   (tradeDirection == -1 && Close[0] >= vizStopTP2);
                 if (tp2Stopped)
                 {
                     vizTP2Active = false;
-                    Draw.Diamond(this, vizPrefix + "TP2Exit", true, 0, Close[0], Brushes.Orange);
-                    Draw.Text(this, vizPrefix + "TP2ExitT", "TP2 Trail", 0, Close[0] - (TickSize * 8), Brushes.Orange);
+                    string tp2Reason;
+                    Brush tp2Color;
+                    if (tp2StopNivel > 0) { tp2Reason = "TP2 Trailing"; tp2Color = Brushes.Orange; lastExitReason = "Trailing"; }
+                    else if (breakevenHit) { tp2Reason = "TP2 BE"; tp2Color = Brushes.Yellow; lastExitReason = "Breakeven"; }
+                    else { tp2Reason = "TP2 SL"; tp2Color = Brushes.Red; lastExitReason = "StopLoss"; }
+                    Draw.Diamond(this, vizPrefix + "TP2Exit", true, 0, Close[0], Brushes.White);
+                    Draw.Text(this, vizPrefix + "TP2ExitT", tp2Reason, 0, Close[0] - (TickSize * 8), tp2Color);
+                    RemoveDrawObject(vizPrefix + "StpTP2");
+                    RemoveDrawObject(vizPrefix + "StpTP2T");
                 }
-                // TP2 target hit (1:2)
                 else if (unrealPts >= stopDistance * 2)
                 {
                     vizTP2Active = false;
                     lastExitReason = "TakeProfit";
-                    Draw.Diamond(this, vizPrefix + "TP2Exit", true, 0, Close[0], Brushes.Gold);
+                    Draw.Diamond(this, vizPrefix + "TP2Exit", true, 0, Close[0], Brushes.White);
                     Draw.Text(this, vizPrefix + "TP2ExitT", "TP2 TP", 0, Close[0] - (TickSize * 8), Brushes.Gold);
+                    RemoveDrawObject(vizPrefix + "StpTP2");
+                    RemoveDrawObject(vizPrefix + "StpTP2T");
                 }
                 else
                 {
-                    // Breakeven (if TP1 not active, BE might not have triggered yet)
                     if (!breakevenHit && unrealPts >= stopDistance * 0.60)
                     {
                         double beStop = tradeDirection == 1 ? entryPrice + ColchonBreakeven : entryPrice - ColchonBreakeven;
@@ -1192,7 +1214,6 @@ namespace NinjaTrader.NinjaScript.Strategies
                         breakevenHit = true;
                     }
 
-                    // Trailing TP2
                     if (breakevenHit)
                     {
                         double tp2Target = stopDistance * 2;
@@ -1210,6 +1231,38 @@ namespace NinjaTrader.NinjaScript.Strategies
                         { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp1 / 100.0)) : entryPrice - (tp2Target * (TP2Stp1 / 100.0)); tp2StopNivel = 1; }
                     }
                 }
+            }
+
+            // Borrar activaciones alcanzadas y mover stops visualmente
+            if (!prevBE && breakevenHit)
+            {
+                RemoveDrawObject(vizPrefix + "BE");
+                RemoveDrawObject(vizPrefix + "BET");
+                // Remove original shared stop, draw separate TP1/TP2 stops
+                RemoveDrawObject(vizPrefix + "Stop");
+                RemoveDrawObject(vizPrefix + "StopT");
+            }
+            if (tp1StopNivel > prevTP1Nivel && vizTP1Active)
+            {
+                RemoveDrawObject(vizPrefix + "TP1_" + tp1StopNivel);
+                RemoveDrawObject(vizPrefix + "TP1_" + tp1StopNivel + "T");
+            }
+            if (tp2StopNivel > prevTP2Nivel && vizTP2Active)
+            {
+                RemoveDrawObject(vizPrefix + "TP2_" + tp2StopNivel);
+                RemoveDrawObject(vizPrefix + "TP2_" + tp2StopNivel + "T");
+            }
+
+            // Redraw stop lines at current positions
+            if (vizTP1Active)
+            {
+                Draw.HorizontalLine(this, vizPrefix + "StpTP1", vizStopTP1, Brushes.Red, DashStyleHelper.Solid, 1);
+                Draw.Text(this, vizPrefix + "StpTP1T", "STP TP1", 0, vizStopTP1, Brushes.Cyan);
+            }
+            if (vizTP2Active)
+            {
+                Draw.HorizontalLine(this, vizPrefix + "StpTP2", vizStopTP2, Brushes.Red, DashStyleHelper.Solid, 1);
+                Draw.Text(this, vizPrefix + "StpTP2T", "STP TP2", 0, vizStopTP2, Brushes.Orange);
             }
 
             // Both contracts done
