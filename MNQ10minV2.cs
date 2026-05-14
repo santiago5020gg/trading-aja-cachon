@@ -51,7 +51,12 @@ namespace NinjaTrader.NinjaScript.Strategies
         [Display(Name = "Modo Log", GroupName = "3. Logging", Order = 1)]
         public LogMode ModoLog { get; set; }
 
-        // --- Trailing TP1 (4 escalones) ---
+        // --- Trailing TP1 ---
+        [NinjaScriptProperty]
+        [Range(1, 4)]
+        [Display(Name = "Cant Trailing TP1", GroupName = "4. Trailing TP1", Order = 0)]
+        public int CantTrailTP1 { get; set; }
+
         [NinjaScriptProperty]
         [Display(Name = "TP1 Esc1 Activ (%)", GroupName = "4. Trailing TP1", Order = 1)]
         public int TP1Act1 { get; set; }
@@ -80,7 +85,12 @@ namespace NinjaTrader.NinjaScript.Strategies
         [Display(Name = "TP1 Esc4 Stop (%)", GroupName = "4. Trailing TP1", Order = 8)]
         public int TP1Stp4 { get; set; }
 
-        // --- Trailing TP2 (6 escalones) ---
+        // --- Trailing TP2 ---
+        [NinjaScriptProperty]
+        [Range(1, 6)]
+        [Display(Name = "Cant Trailing TP2", GroupName = "5. Trailing TP2", Order = 0)]
+        public int CantTrailTP2 { get; set; }
+
         [NinjaScriptProperty]
         [Display(Name = "TP2 Esc1 Activ (%)", GroupName = "5. Trailing TP2", Order = 1)]
         public int TP2Act1 { get; set; }
@@ -241,12 +251,14 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ModoLog = LogMode.Month;
 
                 // Trailing TP1 defaults (activacion% -> stop%)
+                CantTrailTP1 = 4;
                 TP1Act1 = 75; TP1Stp1 = 45;
                 TP1Act2 = 85; TP1Stp2 = 60;
                 TP1Act3 = 95; TP1Stp3 = 80;
                 TP1Act4 = 99; TP1Stp4 = 95;
 
                 // Trailing TP2 defaults (activacion% -> stop%)
+                CantTrailTP2 = 6;
                 TP2Act1 = 50; TP2Stp1 = 18;
                 TP2Act2 = 70; TP2Stp2 = 50;
                 TP2Act3 = 85; TP2Stp3 = 60;
@@ -758,10 +770,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            // Trailing TP1: escalones configurables
+            // Trailing TP1: escalones configurables (respeta CantTrailTP1)
             if (qtyTP1 > 0 && breakevenHit)
             {
-                if (tp1StopNivel < 4 && unrealPts >= stopDistance * (TP1Act4 / 100.0))
+                if (CantTrailTP1 >= 4 && tp1StopNivel < 4 && unrealPts >= stopDistance * (TP1Act4 / 100.0))
                 {
                     double tp1Stop = tradeDirection == 1
                         ? entryPrice + (stopDistance * (TP1Stp4 / 100.0))
@@ -773,7 +785,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     return;
                 }
 
-                if (tp1StopNivel < 3 && unrealPts >= stopDistance * (TP1Act3 / 100.0))
+                if (CantTrailTP1 >= 3 && tp1StopNivel < 3 && unrealPts >= stopDistance * (TP1Act3 / 100.0))
                 {
                     double tp1Stop = tradeDirection == 1
                         ? entryPrice + (stopDistance * (TP1Stp3 / 100.0))
@@ -785,7 +797,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     return;
                 }
 
-                if (tp1StopNivel < 2 && unrealPts >= stopDistance * (TP1Act2 / 100.0))
+                if (CantTrailTP1 >= 2 && tp1StopNivel < 2 && unrealPts >= stopDistance * (TP1Act2 / 100.0))
                 {
                     double tp1Stop = tradeDirection == 1
                         ? entryPrice + (stopDistance * (TP1Stp2 / 100.0))
@@ -810,12 +822,12 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
             }
 
-            // Trailing TP2: escalones configurables
+            // Trailing TP2: escalones configurables (respeta CantTrailTP2)
             if (qtyTP2 > 0 && breakevenHit)
             {
                 double tp2Target = stopDistance * 2;
 
-                if (tp2StopNivel < 6 && unrealPts >= tp2Target * (TP2Act6 / 100.0))
+                if (CantTrailTP2 >= 6 && tp2StopNivel < 6 && unrealPts >= tp2Target * (TP2Act6 / 100.0))
                 {
                     double nuevoStop = tradeDirection == 1
                         ? entryPrice + (tp2Target * (TP2Stp6 / 100.0))
@@ -827,7 +839,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     return;
                 }
 
-                if (tp2StopNivel < 5 && unrealPts >= tp2Target * (TP2Act5 / 100.0))
+                if (CantTrailTP2 >= 5 && tp2StopNivel < 5 && unrealPts >= tp2Target * (TP2Act5 / 100.0))
                 {
                     double nuevoStop = tradeDirection == 1
                         ? entryPrice + (tp2Target * (TP2Stp5 / 100.0))
@@ -839,7 +851,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     return;
                 }
 
-                if (tp2StopNivel < 4 && unrealPts >= tp2Target * (TP2Act4 / 100.0))
+                if (CantTrailTP2 >= 4 && tp2StopNivel < 4 && unrealPts >= tp2Target * (TP2Act4 / 100.0))
                 {
                     double nuevoStop = tradeDirection == 1
                         ? entryPrice + (tp2Target * (TP2Stp4 / 100.0))
@@ -851,7 +863,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     return;
                 }
 
-                if (tp2StopNivel < 3 && unrealPts >= tp2Target * (TP2Act3 / 100.0))
+                if (CantTrailTP2 >= 3 && tp2StopNivel < 3 && unrealPts >= tp2Target * (TP2Act3 / 100.0))
                 {
                     double nuevoStop = tradeDirection == 1
                         ? entryPrice + (tp2Target * (TP2Stp3 / 100.0))
@@ -863,7 +875,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     return;
                 }
 
-                if (tp2StopNivel < 2 && unrealPts >= tp2Target * (TP2Act2 / 100.0))
+                if (CantTrailTP2 >= 2 && tp2StopNivel < 2 && unrealPts >= tp2Target * (TP2Act2 / 100.0))
                 {
                     double nuevoStop = tradeDirection == 1
                         ? entryPrice + (tp2Target * (TP2Stp2 / 100.0))
@@ -1166,11 +1178,11 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                     if (breakevenHit)
                     {
-                        if (tp1StopNivel < 4 && unrealPts >= stopDistance * (TP1Act4 / 100.0))
+                        if (CantTrailTP1 >= 4 && tp1StopNivel < 4 && unrealPts >= stopDistance * (TP1Act4 / 100.0))
                         { vizStopTP1 = tradeDirection == 1 ? entryPrice + (stopDistance * (TP1Stp4 / 100.0)) : entryPrice - (stopDistance * (TP1Stp4 / 100.0)); tp1StopNivel = 4; }
-                        else if (tp1StopNivel < 3 && unrealPts >= stopDistance * (TP1Act3 / 100.0))
+                        else if (CantTrailTP1 >= 3 && tp1StopNivel < 3 && unrealPts >= stopDistance * (TP1Act3 / 100.0))
                         { vizStopTP1 = tradeDirection == 1 ? entryPrice + (stopDistance * (TP1Stp3 / 100.0)) : entryPrice - (stopDistance * (TP1Stp3 / 100.0)); tp1StopNivel = 3; }
-                        else if (tp1StopNivel < 2 && unrealPts >= stopDistance * (TP1Act2 / 100.0))
+                        else if (CantTrailTP1 >= 2 && tp1StopNivel < 2 && unrealPts >= stopDistance * (TP1Act2 / 100.0))
                         { vizStopTP1 = tradeDirection == 1 ? entryPrice + (stopDistance * (TP1Stp2 / 100.0)) : entryPrice - (stopDistance * (TP1Stp2 / 100.0)); tp1StopNivel = 2; }
                         else if (tp1StopNivel < 1 && unrealPts >= stopDistance * (TP1Act1 / 100.0))
                         { vizStopTP1 = tradeDirection == 1 ? entryPrice + (stopDistance * (TP1Stp1 / 100.0)) : entryPrice - (stopDistance * (TP1Stp1 / 100.0)); tp1StopNivel = 1; }
@@ -1217,15 +1229,15 @@ namespace NinjaTrader.NinjaScript.Strategies
                     if (breakevenHit)
                     {
                         double tp2Target = stopDistance * 2;
-                        if (tp2StopNivel < 6 && unrealPts >= tp2Target * (TP2Act6 / 100.0))
+                        if (CantTrailTP2 >= 6 && tp2StopNivel < 6 && unrealPts >= tp2Target * (TP2Act6 / 100.0))
                         { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp6 / 100.0)) : entryPrice - (tp2Target * (TP2Stp6 / 100.0)); tp2StopNivel = 6; }
-                        else if (tp2StopNivel < 5 && unrealPts >= tp2Target * (TP2Act5 / 100.0))
+                        else if (CantTrailTP2 >= 5 && tp2StopNivel < 5 && unrealPts >= tp2Target * (TP2Act5 / 100.0))
                         { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp5 / 100.0)) : entryPrice - (tp2Target * (TP2Stp5 / 100.0)); tp2StopNivel = 5; }
-                        else if (tp2StopNivel < 4 && unrealPts >= tp2Target * (TP2Act4 / 100.0))
+                        else if (CantTrailTP2 >= 4 && tp2StopNivel < 4 && unrealPts >= tp2Target * (TP2Act4 / 100.0))
                         { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp4 / 100.0)) : entryPrice - (tp2Target * (TP2Stp4 / 100.0)); tp2StopNivel = 4; }
-                        else if (tp2StopNivel < 3 && unrealPts >= tp2Target * (TP2Act3 / 100.0))
+                        else if (CantTrailTP2 >= 3 && tp2StopNivel < 3 && unrealPts >= tp2Target * (TP2Act3 / 100.0))
                         { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp3 / 100.0)) : entryPrice - (tp2Target * (TP2Stp3 / 100.0)); tp2StopNivel = 3; }
-                        else if (tp2StopNivel < 2 && unrealPts >= tp2Target * (TP2Act2 / 100.0))
+                        else if (CantTrailTP2 >= 2 && tp2StopNivel < 2 && unrealPts >= tp2Target * (TP2Act2 / 100.0))
                         { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp2 / 100.0)) : entryPrice - (tp2Target * (TP2Stp2 / 100.0)); tp2StopNivel = 2; }
                         else if (tp2StopNivel < 1 && unrealPts >= tp2Target * (TP2Act1 / 100.0))
                         { vizStopTP2 = tradeDirection == 1 ? entryPrice + (tp2Target * (TP2Stp1 / 100.0)) : entryPrice - (tp2Target * (TP2Stp1 / 100.0)); tp2StopNivel = 1; }
@@ -1309,11 +1321,11 @@ namespace NinjaTrader.NinjaScript.Strategies
             Draw.HorizontalLine(this, vizPrefix + "BE", beActPrice, Brushes.Yellow, DashStyleHelper.Dot, 1);
             Draw.Text(this, vizPrefix + "BET", "60%", 0, beActPrice, Brushes.Yellow);
 
-            // TP1 activaciones
+            // TP1 activaciones (solo CantTrailTP1 escalones)
             if (qtyTP1 > 0)
             {
                 double[] tp1Acts = { TP1Act1, TP1Act2, TP1Act3, TP1Act4 };
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i < CantTrailTP1; i++)
                 {
                     double actPrice = tradeDirection == 1
                         ? entryPrice + (stopDistance * (tp1Acts[i] / 100.0))
@@ -1330,12 +1342,12 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Draw.Text(this, vizPrefix + "TP1LineT", "TP1", 0, tp1Target, Brushes.Lime);
             }
 
-            // TP2 activaciones
+            // TP2 activaciones (solo CantTrailTP2 escalones)
             if (qtyTP2 > 0)
             {
                 double tp2Target = stopDistance * 2;
                 double[] tp2Acts = { TP2Act1, TP2Act2, TP2Act3, TP2Act4, TP2Act5, TP2Act6 };
-                for (int i = 0; i < 6; i++)
+                for (int i = 0; i < CantTrailTP2; i++)
                 {
                     double actPrice = tradeDirection == 1
                         ? entryPrice + (tp2Target * (tp2Acts[i] / 100.0))
@@ -1367,12 +1379,12 @@ namespace NinjaTrader.NinjaScript.Strategies
                 Draw.Text(this, "BE_ActT", "60%", 0, beActPrice, Brushes.Yellow);
             }
 
-            // TP1 activaciones
+            // TP1 activaciones (solo CantTrailTP1)
             if (qtyTP1 > 0)
             {
                 double[] tp1Acts = { TP1Act1, TP1Act2, TP1Act3, TP1Act4 };
 
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i < CantTrailTP1; i++)
                 {
                     if (tp1StopNivel > i) continue;
                     double actPrice = tradeDirection == 1
@@ -1385,13 +1397,13 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
             }
 
-            // TP2 activaciones
+            // TP2 activaciones (solo CantTrailTP2)
             if (qtyTP2 > 0)
             {
                 double tp2Target = stopDistance * 2;
                 double[] tp2Acts = { TP2Act1, TP2Act2, TP2Act3, TP2Act4, TP2Act5, TP2Act6 };
 
-                for (int i = 0; i < 6; i++)
+                for (int i = 0; i < CantTrailTP2; i++)
                 {
                     if (tp2StopNivel > i) continue;
                     double actPrice = tradeDirection == 1
