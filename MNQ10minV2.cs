@@ -31,9 +31,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         public int MaxTrades { get; set; }
 
         [NinjaScriptProperty]
-        [Range(1, 20)]
-        [Display(Name = "Micro Contratos", GroupName = "1. Risk", Order = 4)]
-        public int MicroContratos { get; set; }
+        [Display(Name = "Max Perdida Diaria ($)", GroupName = "1. Risk", Order = 4)]
+        public double MaxPerdidaDiaria { get; set; }
 
         [NinjaScriptProperty]
         [Display(Name = "Modo TP (1a1 o 1a2)", GroupName = "1. Risk", Order = 5)]
@@ -162,6 +161,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private int qtyTP1;
         private int qtyTP2;
+        private int contratosCalculados;
+        private int tradesEfectivos;
 
         private bool longUsado;
         private bool shortUsado;
@@ -177,15 +178,13 @@ namespace NinjaTrader.NinjaScript.Strategies
         private string lastExitReason;
         private int lastExitDirection;
         private double dailyPnL;
+        private double peakPnL;
         private double totalPnL;
         private int tradesToday;
 
         private int stopsPuros;
-        private int maxStopsPuros;
         private int takeProfitsHoy;
-        private int maxTakeProfits;
         private int breakevensHoy;
-        private int maxBreakevens;
         private bool cooldownActivo;
         private DateTime breakevenExitTime;
 
@@ -243,8 +242,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 ColchonStop = 5;
                 ColchonBreakeven = 5;
-                MaxTrades = 2;
-                MicroContratos = 2;
+                MaxTrades = 3;
+                MaxPerdidaDiaria = 400;
                 ModoTP = TPMode.Con1a2;
                 ModoOperacion = OperationMode.Operar;
                 HoraCierre = "15:50";
@@ -268,35 +267,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             else if (State == State.Configure)
             {
-                maxStopsPuros = (int)Math.Round((double)MaxTrades / 2, MidpointRounding.AwayFromZero);
-                maxTakeProfits = (int)Math.Round((double)MaxTrades / 2, MidpointRounding.AwayFromZero);
-                maxBreakevens = (int)Math.Round((double)MaxTrades / 2, MidpointRounding.AwayFromZero);
-
-                if (ModoTP == TPMode.Solo1a1)
-                {
-                    qtyTP1 = MicroContratos;
-                    qtyTP2 = 0;
-                    EntriesPerDirection = 1;
-                }
-                else
-                {
-                    if (MicroContratos >= 3)
-                    {
-                        qtyTP1 = MicroContratos - 1;
-                        qtyTP2 = 1;
-                    }
-                    else if (MicroContratos == 2)
-                    {
-                        qtyTP1 = 1;
-                        qtyTP2 = 1;
-                    }
-                    else
-                    {
-                        qtyTP1 = 0;
-                        qtyTP2 = 1;
-                    }
-                    EntriesPerDirection = (qtyTP1 > 0 && qtyTP2 > 0) ? 2 : 1;
-                }
+                EntriesPerDirection = 2;
+                EntryHandling = EntryHandling.AllEntries;
             }
             else if (State == State.DataLoaded)
             {
@@ -387,6 +359,19 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ProcesarFinTrade();
             }
 
+            if (dailyPnL > peakPnL) peakPnL = dailyPnL;
+            double currentDrawdown = peakPnL - dailyPnL;
+            if (currentDrawdown >= MaxPerdidaDiaria && estado != BotState.DiaTerminado)
+            {
+                if (ModoOperacion == OperationMode.Visualizar && vizTradeActive)
+                    VizSalir("MaxPerdidaDiaria");
+                else if (Position.MarketPosition != MarketPosition.Flat)
+                    FlattenAll("MaxPerdidaDiaria");
+                estado = BotState.DiaTerminado;
+                lastDecision = string.Format("DIA_TERMINADO_MAX_PERDIDA peak=${0:F2} pnl=${1:F2} drawdown=${2:F2}", peakPnL, dailyPnL, currentDrawdown);
+                if (firstTick) WriteTelemetry(nyNow);
+                return;
+            }
 
             switch (estado)
             {
@@ -423,74 +408,37 @@ namespace NinjaTrader.NinjaScript.Strategies
             tradeCounted = false;
 
             if (tradeEndedByTakeProfit)
-            {
                 takeProfitsHoy++;
-                tradeEndedByTakeProfit = false;
-
-                if (takeProfitsHoy >= maxTakeProfits)
-                {
-                    estado = BotState.DiaTerminado;
-                    lastDecision = string.Format("DIA_TERMINADO_MAX_TP ({0})", takeProfitsHoy);
-                }
-                else if (tradesToday >= MaxTrades)
-                {
-                    estado = BotState.DiaTerminado;
-                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
-                }
-                else
-                {
-                    pendingFlip = false;
-                    reentryPriceInRange = false;
-                    cooldownActivo = true;
-                    breakevenExitTime = Time[0];
-                    estado = BotState.OrdenesPuestas;
-                    lastDecision = string.Format("POST_TP_COOLDOWN_50s H={0:F2} L={1:F2}", rangoHigh, rangoLow);
-                }
-            }
             else if (exitReason == "StopLoss")
-            {
                 stopsPuros++;
-                tradeEndedByTakeProfit = false;
+            else
+                breakevensHoy++;
+            tradeEndedByTakeProfit = false;
 
-                if (stopsPuros >= maxStopsPuros)
-                {
-                    estado = BotState.DiaTerminado;
-                    lastDecision = string.Format("DIA_TERMINADO_MAX_STOPS ({0})", stopsPuros);
-                }
-                else if (tradesToday >= MaxTrades)
-                {
-                    estado = BotState.DiaTerminado;
-                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
-                }
+            if (dailyPnL > peakPnL) peakPnL = dailyPnL;
+
+            double drawdown = peakPnL - dailyPnL;
+            double drawdownRestante = MaxPerdidaDiaria - drawdown;
+            double perdidaPorTrade = stopDistance * 2.0 * contratosCalculados;
+            bool tieneCaja = drawdownRestante >= perdidaPorTrade;
+            bool tieneTradesDisponibles = tradesToday < tradesEfectivos;
+
+            if (!tieneCaja || !tieneTradesDisponibles)
+            {
+                estado = BotState.DiaTerminado;
+                if (!tieneCaja)
+                    lastDecision = string.Format("DIA_TERMINADO_SIN_CAJA drawdown=${0:F2} restante=${1:F2} necesita=${2:F2}", drawdown, drawdownRestante, perdidaPorTrade);
                 else
+                    lastDecision = string.Format("DIA_TERMINADO_MAX_TRADES ({0}/{1})", tradesToday, tradesEfectivos);
+            }
+            else
+            {
+                if (exitReason == "StopLoss")
                 {
                     pendingFlip = true;
                     pendingFlipDirection = prevDirection == 1 ? -1 : 1;
                     estado = BotState.OrdenesPuestas;
-                    lastDecision = string.Format("FLIP_PENDING dir={0}", pendingFlipDirection == 1 ? "LONG" : "SHORT");
-                }
-            }
-            else if (tradesToday >= MaxTrades)
-            {
-                tradeEndedByTakeProfit = false;
-                estado = BotState.DiaTerminado;
-                lastDecision = "DIA_TERMINADO_MAX_TRADES";
-            }
-            else
-            {
-                // Breakeven exit
-                tradeEndedByTakeProfit = false;
-                breakevensHoy++;
-
-                if (breakevensHoy >= maxBreakevens)
-                {
-                    estado = BotState.DiaTerminado;
-                    lastDecision = string.Format("DIA_TERMINADO_MAX_BE ({0})", breakevensHoy);
-                }
-                else if (tradesToday >= MaxTrades)
-                {
-                    estado = BotState.DiaTerminado;
-                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                    lastDecision = string.Format("FLIP_PENDING dir={0} peak=${1:F2} drawdown=${2:F2}", pendingFlipDirection == 1 ? "LONG" : "SHORT", peakPnL, drawdown);
                 }
                 else
                 {
@@ -499,7 +447,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     cooldownActivo = true;
                     breakevenExitTime = Time[0];
                     estado = BotState.OrdenesPuestas;
-                    lastDecision = string.Format("COOLDOWN_50s H={0:F2} L={1:F2}", rangoHigh, rangoLow);
+                    lastDecision = string.Format("COOLDOWN_50s peak=${0:F2} drawdown=${1:F2}", peakPnL, drawdown);
                 }
             }
         }
@@ -539,15 +487,63 @@ namespace NinjaTrader.NinjaScript.Strategies
             rangoPuntos = rangoHigh - rangoLow;
             stopDistance = rangoPuntos + ColchonStop;
 
+            double perdidaPorContrato = stopDistance * 2.0;
+            contratosCalculados = 0;
+            tradesEfectivos = 0;
+
+            for (int t = MaxTrades; t >= 1; t--)
+            {
+                double presupuestoPorTrade = MaxPerdidaDiaria / t;
+                int c = (int)Math.Floor(presupuestoPorTrade / perdidaPorContrato);
+                if (c >= 1)
+                {
+                    tradesEfectivos = t;
+                    contratosCalculados = c;
+                    break;
+                }
+            }
+
+            if (contratosCalculados <= 0)
+            {
+                estado = BotState.DiaTerminado;
+                lastDecision = string.Format("DIA_TERMINADO_RIESGO_EXCEDE stop={0:F2}pts $/contrato=${1:F2} > maxPerdida=${2:F2}",
+                    stopDistance, perdidaPorContrato, MaxPerdidaDiaria);
+                return;
+            }
+
+            if (ModoTP == TPMode.Solo1a1)
+            {
+                qtyTP1 = contratosCalculados;
+                qtyTP2 = 0;
+            }
+            else
+            {
+                if (contratosCalculados >= 2)
+                {
+                    qtyTP1 = contratosCalculados - 1;
+                    qtyTP2 = 1;
+                }
+                else
+                {
+                    qtyTP1 = 0;
+                    qtyTP2 = 1;
+                }
+            }
+
             int barsBack = CurrentBar - rangoStartBar;
             Draw.Rectangle(this, "Rango" + nyNow.ToString("yyyyMMdd"), false,
                 barsBack, rangoHigh, 0, rangoLow, Brushes.Transparent, Brushes.DodgerBlue, 30);
 
+            double rangoMid = (rangoHigh + rangoLow) / 2;
+            Draw.Text(this, "RangoPts" + nyNow.ToString("yyyyMMdd"),
+                string.Format("{0:F0}pts", rangoPuntos),
+                barsBack / 2, rangoMid, Brushes.White);
+
             ColocarOrdenes();
 
             estado = BotState.OrdenesPuestas;
-            lastDecision = string.Format("ORDENES_PUESTAS H={0:F2} L={1:F2} pts={2:F2} stop={3:F2}",
-                rangoHigh, rangoLow, rangoPuntos, stopDistance);
+            lastDecision = string.Format("ORDENES_PUESTAS H={0:F2} L={1:F2} pts={2:F2} stop={3:F2} trades={4} contratos={5} (TP1x{6} TP2x{7})",
+                rangoHigh, rangoLow, rangoPuntos, stopDistance, tradesEfectivos, contratosCalculados, qtyTP1, qtyTP2);
         }
 
         #endregion
@@ -579,7 +575,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
-            if (tradesToday >= MaxTrades)
+            if (tradesToday >= tradesEfectivos)
             {
                 estado = BotState.DiaTerminado;
                 lastDecision = "DIA_TERMINADO_MAX_TRADES";
@@ -1005,7 +1001,10 @@ namespace NinjaTrader.NinjaScript.Strategies
         private void ResetDaily()
         {
             dailyPnL = 0;
+            peakPnL = 0;
             tradesToday = 0;
+            contratosCalculados = 0;
+            tradesEfectivos = 0;
             stopsPuros = 0;
             takeProfitsHoy = 0;
             breakevensHoy = 0;

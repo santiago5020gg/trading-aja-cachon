@@ -23,9 +23,9 @@ from datetime import datetime, timedelta
 def parse_args():
     parser = argparse.ArgumentParser(description="Tick-by-tick simulator MNQ10minV2")
     parser.add_argument("--colchon", type=int, default=5, help="ColchonStop in points (default: 5)")
-    parser.add_argument("--trades", type=int, default=2, help="MaxTrades per day (default: 2)")
-    parser.add_argument("--contratos", type=int, default=2, help="MicroContratos (default: 2)")
-    parser.add_argument("--modo", choices=["1a1", "1a2"], default="1a1", help="TP mode (default: 1a2)")
+    parser.add_argument("--trades", type=int, default=3, help="MaxTrades per day (default: 3)")
+    parser.add_argument("--max-perdida", type=float, default=400, help="Max perdida diaria en dolares (default: 400)")
+    parser.add_argument("--modo", choices=["1a1", "1a2"], default="1a2", help="TP mode (default: 1a2)")
     parser.add_argument("--cierre", type=str, default="15:50", help="Hora cierre HH:MM ET (default: 15:50)")
     parser.add_argument("--utc-offset", type=int, default=None, help="Hours to subtract for ET (auto-detected from date if omitted: 5=EST, 4=EDT)")
     parser.add_argument("--output-dir", type=str, default="sim_output", help="Output directory (default: sim_output)")
@@ -77,10 +77,10 @@ def round_to_tick(price):
 class TickSimulator:
     """Exact port of MNQ10minV2.cs state machine operating tick-by-tick."""
 
-    def __init__(self, colchon_stop, max_trades, micro_contratos, modo_tp, hora_cierre, utc_offset, output_dir, verbose):
+    def __init__(self, colchon_stop, max_trades, max_perdida_diaria, modo_tp, hora_cierre, utc_offset, output_dir, verbose):
         self.colchon_stop = colchon_stop
         self.max_trades = max_trades
-        self.micro_contratos = micro_contratos
+        self.max_perdida_diaria = max_perdida_diaria
         self.modo_tp = modo_tp
         self.utc_offset = utc_offset  # None = auto-detect per date
         self._cached_offset_date = None
@@ -93,24 +93,9 @@ class TickSimulator:
         self.hora_cierre_h = int(hc_parts[0])
         self.hora_cierre_m = int(hc_parts[1])
 
-        # Compute derived params
-        self.max_stops_puros = round(max_trades / 2)
-        self.max_take_profits = round(max_trades / 2)
-        self.max_breakevens = round(max_trades / 2)
-
-        if modo_tp == "1a1":
-            self.qty_tp1 = micro_contratos
-            self.qty_tp2 = 0
-        else:
-            if micro_contratos >= 3:
-                self.qty_tp1 = micro_contratos - 1
-                self.qty_tp2 = 1
-            elif micro_contratos == 2:
-                self.qty_tp1 = 1
-                self.qty_tp2 = 1
-            else:
-                self.qty_tp1 = 0
-                self.qty_tp2 = 1
+        # qty_tp1/qty_tp2 are calculated dynamically post-range
+        self.qty_tp1 = 0
+        self.qty_tp2 = 0
 
         # Bar builder state
         self.current_bar_start = None  # datetime of current bar period start
@@ -142,8 +127,12 @@ class TickSimulator:
         self.rango_low = 999999.0
         self.rango_pts = 0.0
 
+        self.qty_tp1 = 0
+        self.qty_tp2 = 0
         self.qty_tp1_active = False
         self.qty_tp2_active = False
+        self.contratos_calculados = 0
+        self.trades_efectivos = 0
 
         self.long_usado = False
         self.short_usado = False
@@ -156,6 +145,7 @@ class TickSimulator:
         self.pending_flip_direction = 0
 
         self.daily_pnl = 0.0
+        self.peak_pnl = 0.0
         self.trades_today = 0
         self.stops_puros = 0
         self.take_profits_hoy = 0
@@ -176,9 +166,8 @@ class TickSimulator:
         print(f"=== PARAMETROS ===")
         print(f"  ColchonStop: {self.colchon_stop}")
         print(f"  Max Trades/Dia: {self.max_trades}")
-        print(f"  Micro Contratos: {self.micro_contratos}")
-        print(f"  Modo TP: {self.modo_tp} (TP1 x{self.qty_tp1}, TP2 x{self.qty_tp2})")
-        print(f"  Max Stops: {self.max_stops_puros} | Max TPs: {self.max_take_profits} | Max BEs: {self.max_breakevens}")
+        print(f"  Max Perdida Diaria: ${self.max_perdida_diaria:.2f}")
+        print(f"  Modo TP: {self.modo_tp} (contratos calculados post-rango)")
         print(f"  Hora Cierre: {self.hora_cierre_h:02d}:{self.hora_cierre_m:02d} ET")
         if self.utc_offset is not None:
             print(f"  UTC Offset: -{self.utc_offset}h (manual)")
@@ -383,6 +372,19 @@ class TickSimulator:
         if before_open:
             return
 
+        # Update peak and check drawdown
+        if self.daily_pnl > self.peak_pnl:
+            self.peak_pnl = self.daily_pnl
+        current_drawdown = self.peak_pnl - self.daily_pnl
+        if current_drawdown >= self.max_perdida_diaria:
+            if self.trade_direction != 0:
+                self._force_close(price, "MaxPerdidaDiaria")
+            self.estado = "DiaTerminado"
+            self.last_decision = f"DIA_TERMINADO_MAX_PERDIDA peak=${self.peak_pnl:.2f} pnl=${self.daily_pnl:.2f} drawdown=${current_drawdown:.2f}"
+            if self.verbose:
+                print(f"  [{hour:02d}:{minute:02d}:{second:02d}] MAX PERDIDA DIARIA: peak=${self.peak_pnl:.2f} drawdown=${current_drawdown:.2f}")
+            return
+
         # ─── State: EsperandoRango ────────────────────────────────────────────
         if self.estado == "EsperandoRango":
             # C# checks: nyNow.Minute >= 32 && nyNow.Minute <= 40 using Time[0].
@@ -415,11 +417,24 @@ class TickSimulator:
             self.rango_pts = self.rango_high - self.rango_low
             self.stop_distance = self.rango_pts + self.colchon_stop
 
+            # Calculate contracts (fixed for the day) — MaxTrades is always the ceiling
+            perdida_por_contrato = self.stop_distance * POINT_VALUE
+            self.contratos_calculados = int(self.max_perdida_diaria // perdida_por_contrato)
+
+            if self.contratos_calculados <= 0:
+                self.estado = "DiaTerminado"
+                self.last_decision = f"DIA_TERMINADO_RIESGO_EXCEDE stop={self.stop_distance:.2f}pts $/contrato=${perdida_por_contrato:.2f} > maxPerdida=${self.max_perdida_diaria:.2f}"
+                if self.verbose:
+                    print(f"  [09:{minute:02d}:{second:02d}] RIESGO EXCEDE: $/contrato=${perdida_por_contrato:.2f} > maxPerdida=${self.max_perdida_diaria:.2f}")
+                return
+
+            self._assign_contracts(self.contratos_calculados)
+
             self.estado = "OrdenesPuestas"
-            self.last_decision = f"ORDENES_PUESTAS H={self.rango_high:.2f} L={self.rango_low:.2f} pts={self.rango_pts:.2f} stop={self.stop_distance:.2f}"
+            self.last_decision = f"ORDENES_PUESTAS H={self.rango_high:.2f} L={self.rango_low:.2f} stop={self.stop_distance:.2f} maxTrades={self.max_trades} contratos={self.contratos_calculados} (TP1x{self.qty_tp1} TP2x{self.qty_tp2})"
 
             if self.verbose:
-                print(f"  [09:{minute:02d}:{second:02d}] Rango formado: H={self.rango_high:.2f} L={self.rango_low:.2f} pts={self.rango_pts:.2f} stopDist={self.stop_distance:.2f}")
+                print(f"  [09:{minute:02d}:{second:02d}] Rango formado: H={self.rango_high:.2f} L={self.rango_low:.2f} pts={self.rango_pts:.2f} stopDist={self.stop_distance:.2f} maxTrades={self.max_trades} contratos={self.contratos_calculados} (TP1x{self.qty_tp1} TP2x{self.qty_tp2})")
 
             # IMPORTANT: After transition, check if this same tick triggers a breakout
             # (C# continues processing in the same OnBarUpdate call)
@@ -435,6 +450,19 @@ class TickSimulator:
         if self.estado == "EnTrade":
             self._monitor_trade(hour, minute, second, price)
             return
+
+    def _assign_contracts(self, num_contratos):
+        """Assign contracts to TP1/TP2 based on mode and available contracts."""
+        if self.modo_tp == "1a1":
+            self.qty_tp1 = num_contratos
+            self.qty_tp2 = 0
+        else:
+            if num_contratos >= 2:
+                self.qty_tp1 = num_contratos - 1
+                self.qty_tp2 = 1
+            else:
+                self.qty_tp1 = 0
+                self.qty_tp2 = 1
 
     def _check_ordenes(self, hour, minute, second, price):
         """OrdenesPuestas state: check for entry signals."""
@@ -757,49 +785,46 @@ class TickSimulator:
 
         if exit_reason == "TakeProfit":
             self.take_profits_hoy += 1
-            if self.take_profits_hoy >= self.max_take_profits:
-                self.estado = "DiaTerminado"
-                self.last_decision = f"DIA_TERMINADO_MAX_TP ({self.take_profits_hoy})"
-            elif self.trades_today >= self.max_trades:
-                self.estado = "DiaTerminado"
-                self.last_decision = "DIA_TERMINADO_MAX_TRADES"
-            else:
-                self.pending_flip = False
-                self.reentry_price_in_range = False
-                self.cooldown_activo = True
-                self.cooldown_start_time = (hour, minute, second)
-                self.estado = "OrdenesPuestas"
-                self.last_decision = f"POST_TP_COOLDOWN_50s"
-
         elif exit_reason == "StopLoss":
             self.stops_puros += 1
-            if self.stops_puros >= self.max_stops_puros:
-                self.estado = "DiaTerminado"
-                self.last_decision = f"DIA_TERMINADO_MAX_STOPS ({self.stops_puros})"
-            elif self.trades_today >= self.max_trades:
-                self.estado = "DiaTerminado"
-                self.last_decision = "DIA_TERMINADO_MAX_TRADES"
+        else:
+            self.breakevens_hoy += 1
+
+        # Update peak
+        if self.daily_pnl > self.peak_pnl:
+            self.peak_pnl = self.daily_pnl
+
+        # Drawdown from peak evaluation
+        drawdown = self.peak_pnl - self.daily_pnl
+        drawdown_restante = self.max_perdida_diaria - drawdown
+        perdida_por_trade = self.stop_distance * POINT_VALUE * self.contratos_calculados
+        tiene_caja = drawdown_restante >= perdida_por_trade
+        tiene_trades = self.trades_today < self.max_trades
+
+        if not tiene_caja or not tiene_trades:
+            self.estado = "DiaTerminado"
+            if not tiene_caja:
+                self.last_decision = f"DIA_TERMINADO_SIN_CAJA drawdown=${drawdown:.2f} restante=${drawdown_restante:.2f} necesita=${perdida_por_trade:.2f}"
             else:
+                self.last_decision = f"DIA_TERMINADO_MAX_TRADES ({self.trades_today}/{self.max_trades})"
+            if self.verbose:
+                print(f"  [{hour:02d}:{minute:02d}:{second:02d}] {self.last_decision}")
+        else:
+            if exit_reason == "StopLoss":
                 self.pending_flip = True
                 self.pending_flip_direction = -1 if prev_direction == 1 else 1
                 self.estado = "OrdenesPuestas"
-                self.last_decision = f"FLIP_PENDING dir={'LONG' if self.pending_flip_direction == 1 else 'SHORT'}"
-
-        else:  # Breakeven
-            self.breakevens_hoy += 1
-            if self.breakevens_hoy >= self.max_breakevens:
-                self.estado = "DiaTerminado"
-                self.last_decision = f"DIA_TERMINADO_MAX_BE ({self.breakevens_hoy})"
-            elif self.trades_today >= self.max_trades:
-                self.estado = "DiaTerminado"
-                self.last_decision = "DIA_TERMINADO_MAX_TRADES"
+                self.last_decision = f"FLIP_PENDING dir={'LONG' if self.pending_flip_direction == 1 else 'SHORT'} peak=${self.peak_pnl:.2f} drawdown=${drawdown:.2f}"
             else:
                 self.pending_flip = False
                 self.reentry_price_in_range = False
                 self.cooldown_activo = True
                 self.cooldown_start_time = (hour, minute, second)
                 self.estado = "OrdenesPuestas"
-                self.last_decision = f"COOLDOWN_50s"
+                self.last_decision = f"COOLDOWN_50s peak=${self.peak_pnl:.2f} drawdown=${drawdown:.2f}"
+
+            if self.verbose:
+                print(f"  [{hour:02d}:{minute:02d}:{second:02d}] POST_TRADE: {self.last_decision}")
 
     def _force_close(self, price, reason):
         """Force close remaining positions at given price."""
@@ -952,7 +977,7 @@ def main():
     sim = TickSimulator(
         colchon_stop=args.colchon,
         max_trades=args.trades,
-        micro_contratos=args.contratos,
+        max_perdida_diaria=args.max_perdida,
         modo_tp=args.modo,
         hora_cierre=args.cierre,
         utc_offset=args.utc_offset,
