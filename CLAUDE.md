@@ -1,24 +1,66 @@
-# MNQ Trading Bot — Operativa "En Caliente"
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project overview
 
-NinjaTrader 8 automated strategy for MNQ (Micro E-mini Nasdaq) futures. Opera con barras de 2 minutos usando SMA20/SMA200, trailing bar-a-bar, y tres tipos de entrada: tendencia 09:32, pullback a SMA20, y ruptura de rango.
+NinjaTrader 8 automated strategy for MNQ (Micro E-mini Nasdaq) futures. La estrategia activa es **MNQ10minV2** — ruptura de rango de los primeros 10 minutos (09:30-09:40 ET) con trailing stops parametrizables y modos TP 1:1 / 1:2.
 
 ## Architecture
 
-- **MNQEnCalienteBot.cs** — Estrategia v3 (legacy). C# targeting NinjaTrader 8 NinjaScript API. Scoring probabilístico con 29 parámetros. Reemplazada por MNQOliver.
-- **MNQOliver.cs** — Estrategia v4 basada en Oliver Velez price-action + ATR. Usa EMA(20)/SMA(200)/ATR(14), flujo de 8 pasos (SOH→dirección→fase→detonante→entrada→trailing), 11 parámetros (8 walk-forward + 3 fijos). Spec: docs/superpowers/specs/2026-05-01-mnqoliver-design.md
+### NinjaTrader C# (single-file strategies)
+
+- **MNQ10minV2.cs** — Estrategia activa. Ruptura de rango 09:30-09:40, estados (EsperandoRango→OrdenesPuestas→EnTrade→DiaTerminado), trailing stops multi-escalon para TP1/TP2, modos 1a1 y 1a2. Spec: `docs/superpowers/specs/2026-05-06-mnq10min-v2-design.md`
 - **MCPBridge.cs** — AddOn de NinjaTrader. Servidor HTTP (localhost:8500) que expone datos del chart al MCP bridge.
-- **MCPBridgeIndicator.cs** — Indicador de NinjaTrader que va en el chart y alimenta OHLCV + SMA20 + SMA200 al bridge.
-- **mcp-ninjatrader/** — Node.js MCP server que conecta Claude Code a NinjaTrader via HTTP. Se comunica con MCPBridgeIndicator (localhost:8500).
+- **MCPBridgeIndicator.cs** — Indicador de NinjaTrader que va en el chart y alimenta OHLCV + SMA20 + SMA200 + ATR + RSI al bridge.
+
+### Python (simulacion y backtesting)
+
+- **tick_simulator_mnq10minv2.py** — Port exacto tick-a-tick del C# bot. Lee exports de ticks de NinjaTrader, procesa cada tick por la state machine, genera CSV logs identicos al bot real. Usar skill `sync-cs-to-simulator` para mantener sincronizado con el C#.
+- **backtest_mnq10minv2.py** — Backtester sobre barras de 2 min. Acepta 3 formatos: bar_log CSV del bot, export .txt barras NT, export .txt ticks NT. Genera resumen diario + detalle de trades.
+
+### MCP bridge
+
+- **mcp-ninjatrader/** — Node.js MCP server (ES modules, `@modelcontextprotocol/sdk`). Conecta Claude Code a NinjaTrader via HTTP localhost:8500. Transport: stdio.
+
+### Data directories
+
+- **bot/history/** — CSV logs del bot real (bar_log, trades_log, daily_log)
+- **historicos test/** — Exports de NinjaTrader (ticks y barras) para backtesting
+- **sim_output/** — Salida del tick simulator
+- **graficas/** — Capturas markdown de dias completos (barras 2min con OHLCV + SMAs)
+- **docs/superpowers/specs/** — Documentos de diseño de cada version de estrategia
+
+## Commands
+
+### Python simulator/backtester
+
+```bash
+# Tick simulator (tick-by-tick, high fidelity)
+python tick_simulator_mnq10minv2.py "historicos test/MNQ 03-26-enero-febrero-marzo.Last.txt"
+python tick_simulator_mnq10minv2.py --colchon 10 --trades 3 --modo 1a2 "file.txt"
+
+# Backtester (bar-based, faster)
+python backtest_mnq10minv2.py                                    # usa bot/history/mnq10minv2_bar_log.csv
+python backtest_mnq10minv2.py "historicos test/MNQ 06-26.Last.txt"
+python backtest_mnq10minv2.py --desde 2026-01-01 --hasta 2026-03-31 -v "file.txt"
+```
+
+### MCP bridge
+
+```bash
+cd mcp-ninjatrader && npm install   # solo primera vez
+node mcp-ninjatrader/index.js       # lanzado automaticamente por Claude Code via stdio
+```
 
 ## Key conventions
 
-- The bot is a single-file NinjaScript strategy — do not split into multiple files
-- NinjaTrader uses C# with its own NinjaScript base classes (Strategy, Indicator)
+- Each NinjaScript strategy is a single .cs file — do not split into multiple files
+- NinjaTrader uses C# with NinjaScript base classes (Strategy, Indicator, AddOn)
 - All times are New York (Eastern) timezone
-- The MCP bridge requires MCPBridgeIndicator added to an active NinjaTrader chart
 - NinjaTrader may output JSON with Spanish locale (decimal commas instead of dots) — the MCP bridge sanitizes this in `fetchNT()`
+- The tick simulator must be an exact port of the C# logic — use the `sync-cs-to-simulator` skill after modifying MNQ10minV2.cs
+- MNQ10minV2 parameters are fully exposed as NinjaScript properties for NinjaTrader optimization (walk-forward)
 
 ## Chart capture — graficas/
 
@@ -63,21 +105,22 @@ Estos archivos son una representacion completa de la grafica de 2 minutos. Cualq
 - `playback_resume` — resume el Playback
 - `playback_status` — estado actual del Playback (idle, seeking, arrived, paused, playing)
 
-## Known issues
-
-- NinjaTrader Playback a velocidad maxima puede saltarse el chequeo de target en el indicador. Usar rampa de desaceleracion (1000x lejos, 1x cerca del target).
-- El usuario avanza manualmente el Playback a velocidad max y dice "listo" para que Claude capture cada dia.
-
 ## Development workflow
 
 - Edit C# in this repo, then copy to NinjaTrader and recompile
 - Los archivos deben copiarse a `C:\Users\<USUARIO>\OneDrive - Perficient, Inc\Documents\NinjaTrader 8\bin\Custom\`:
-  - `MNQEnCalienteBot.cs` → `Strategies/`
-  - `MNQOliver.cs` → `Strategies/`
+  - `MNQ10minV2.cs` → `Strategies/`
   - `MCPBridge.cs` → `AddOns/`
   - `MCPBridgeIndicator.cs` → `Indicators/`
+- After modifying MNQ10minV2.cs, run `sync-cs-to-simulator` skill to update the Python tick simulator
+- Validate changes with: `python tick_simulator_mnq10minv2.py` on tick data and compare CSV output
 - MCP bridge runs via `node mcp-ninjatrader/index.js` (stdio transport, launched by Claude Code)
-- Test connection: use `ping` MCP tool, then `get_current_bar`
+- Test MCP connection: use `ping` tool, then `get_current_bar`
+
+## Known issues
+
+- NinjaTrader Playback a velocidad maxima puede saltarse el chequeo de target en el indicador. Usar rampa de desaceleracion (1000x lejos, 1x cerca del target).
+- El usuario avanza manualmente el Playback a velocidad max y dice "listo" para que Claude capture cada dia.
 
 ## Language
 
