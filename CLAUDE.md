@@ -10,7 +10,7 @@ NinjaTrader 8 automated strategy for MNQ (Micro E-mini Nasdaq) futures. La estra
 
 ### NinjaTrader C# (single-file strategies)
 
-- **MNQ10minV2.cs** — Estrategia activa. Ruptura de rango 09:30-09:40, estados (EsperandoRango→OrdenesPuestas→EnTrade→DiaTerminado), trailing stops multi-escalon para TP1/TP2, modos 1a1 y 1a2. Spec: `docs/superpowers/specs/2026-05-06-mnq10min-v2-design.md`
+- **MNQ10minV2.cs** — Estrategia activa. Ruptura de rango 09:30-09:40, estados (EsperandoRango→OrdenesPuestas→EnTrade→DiaTerminado), trailing stops multi-escalon para TP1/TP2, modos 1a1 y 1a2, motor de riesgo con position sizing dinamico (calcula contratos y trades permitidos basado en PerdidaMaxDiaria y rango). Specs: `docs/superpowers/specs/2026-05-06-mnq10min-v2-design.md`, `docs/superpowers/specs/2026-05-15-risk-engine-position-sizing-design.md`
 - **MCPBridge.cs** — AddOn de NinjaTrader. Servidor HTTP (localhost:8500) que expone datos del chart al MCP bridge.
 - **MCPBridgeIndicator.cs** — Indicador de NinjaTrader que va en el chart y alimenta OHLCV + SMA20 + SMA200 + ATR + RSI al bridge.
 
@@ -98,7 +98,7 @@ Estos archivos son una representacion completa de la grafica de 2 minutos. Cualq
 
 - `ping` — verifica conexion con NinjaTrader
 - `get_current_bar` — barra actual con OHLCV + todos los indicadores
-- `get_bar_history` (count 1-750) — historial de barras con OHLCV + SMA20 + SMA200
+- `get_bar_history` (count 1-22000, from/to, sessionOnly) — historial de barras con OHLCV + SMA20 + SMA200. Soporta rango por fechas `from`/`to` (formato yyyy-MM-dd o yyyy-MM-dd HH:mm) o por count. `sessionOnly=true` filtra solo sesion regular (09:30-16:00 ET).
 - `get_market_context` — snapshot completo con analisis de tendencia
 - `playback_goto` (targetTime) — avanza el Playback hasta una fecha/hora y pausa automaticamente
 - `playback_pause` — pausa el Playback
