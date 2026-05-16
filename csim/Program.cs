@@ -42,6 +42,9 @@ namespace CSimulator
 
     class Program
     {
+        static readonly TimeZoneInfo EasternZone =
+            TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+
         static void Main(string[] args)
         {
             var config = ParseArgs(args);
@@ -83,6 +86,17 @@ namespace CSimulator
             strategy.PerdidaMaxDiaria = config.PerdidaMaxDiaria;
             strategy.HoraCierre = config.HoraCierre;
 
+            // Recalculate derived fields that depend on MaxTrades
+            var flags2 = BindingFlags.NonPublic | BindingFlags.Instance;
+            int maxHalf = (int)Math.Round((double)config.MaxTrades / 2, MidpointRounding.AwayFromZero);
+            typeof(MNQ10minV2).GetField("maxStopsPuros", flags2).SetValue(strategy, maxHalf);
+            typeof(MNQ10minV2).GetField("maxTakeProfits", flags2).SetValue(strategy, maxHalf);
+            typeof(MNQ10minV2).GetField("maxBreakevens", flags2).SetValue(strategy, maxHalf);
+            // Recalculate horaCierreH/M
+            string[] hcParts = config.HoraCierre.Split(':');
+            typeof(MNQ10minV2).GetField("horaCierreH", flags2).SetValue(strategy, int.Parse(hcParts[0]));
+            typeof(MNQ10minV2).GetField("horaCierreM", flags2).SetValue(strategy, int.Parse(hcParts[1]));
+
             // Set ModoTP via reflection (nested enum)
             var modoProp = typeof(MNQ10minV2).GetProperty("ModoTP");
             var modoEnumType = modoProp.PropertyType;
@@ -100,10 +114,18 @@ namespace CSimulator
             string outputDir = config.OutputDir;
             if (outputDir != null)
             {
-                var field = typeof(MNQ10minV2).GetField("botHistoryDir",
-                    BindingFlags.NonPublic | BindingFlags.Instance);
                 Directory.CreateDirectory(outputDir);
-                field.SetValue(strategy, outputDir);
+                var flags = BindingFlags.NonPublic | BindingFlags.Instance;
+                typeof(MNQ10minV2).GetField("botHistoryDir", flags).SetValue(strategy, outputDir);
+                typeof(MNQ10minV2).GetField("csvLogPath", flags)
+                    .SetValue(strategy, Path.Combine(outputDir, "mnq10minv2_trades_log.csv"));
+                typeof(MNQ10minV2).GetField("csvDailyPath", flags)
+                    .SetValue(strategy, Path.Combine(outputDir, "mnq10minv2_daily_log.csv"));
+                typeof(MNQ10minV2).GetField("csvBarLogPath", flags)
+                    .SetValue(strategy, Path.Combine(outputDir, "mnq10minv2_bar_log.csv"));
+                // Re-write CSV headers at new paths
+                typeof(MNQ10minV2).GetMethod("InitCsvLogs", flags)
+                    .Invoke(strategy, null);
             }
 
             // Disable telemetry if requested
@@ -139,7 +161,9 @@ namespace CSimulator
         static long RunSimulation(MNQ10minV2 strategy, OrderEngine engine, string tickFile)
         {
             long tickCount = 0;
-            int currentBarMinute = -1;
+            // 2-minute bars: bar period defined by even-minute boundary
+            // Bar closing at minute M contains ticks from M-2 to M-1 (e.g., bar "09:32" has ticks 09:30:00–09:31:59)
+            int currentBarSlot = -1;  // floor(totalMinutes / 2)
 
             using (var reader = new StreamReader(tickFile))
             {
@@ -149,7 +173,6 @@ namespace CSimulator
                     if (string.IsNullOrWhiteSpace(line))
                         continue;
 
-                    // Parse tick
                     if (!TryParseTick(line, out Tick tick))
                         continue;
 
@@ -158,12 +181,16 @@ namespace CSimulator
                     // Step 1: Fill pending entries from previous tick
                     engine.FillPendingEntries(tick.Last, tick.Time);
 
-                    // Step 2: Determine if new 1-minute bar
-                    int tickMinute = tick.Time.Hour * 60 + tick.Time.Minute;
-                    if (tickMinute != currentBarMinute)
+                    // Step 2: Determine bar slot (2-minute periods)
+                    // Convert tick UTC time to ET for bar alignment
+                    DateTime tickET = TimeZoneInfo.ConvertTimeFromUtc(tick.Time, EasternZone);
+                    int totalMinutes = tickET.Hour * 60 + tickET.Minute;
+                    int barSlot = totalMinutes / 2;
+
+                    if (barSlot != currentBarSlot)
                     {
                         // New bar
-                        currentBarMinute = tickMinute;
+                        currentBarSlot = barSlot;
                         strategy.CurrentBar++;
                         strategy.IsFirstTickOfBar = true;
                         strategy.Open[0] = tick.Last;
@@ -182,9 +209,14 @@ namespace CSimulator
                         strategy.Close[0] = tick.Last;
                     }
 
-                    // Step 3: Set Volume and Time
+                    // Step 3: Set Volume and Time[0] = bar close time (even minute boundary)
                     strategy.Volume[0] = tick.Volume;
-                    strategy.Time[0] = tick.Time;
+                    // NinjaTrader Time[0] for a 2-min bar is the period close (next even minute)
+                    int closeMinute = (barSlot + 1) * 2;
+                    int closeH = closeMinute / 60;
+                    int closeM = closeMinute % 60;
+                    DateTime barCloseET = tickET.Date.AddHours(closeH).AddMinutes(closeM);
+                    strategy.Time[0] = TimeZoneInfo.ConvertTimeToUtc(barCloseET, EasternZone);
 
                     // Step 4: Call OnBarUpdate
                     strategy.TriggerOnBarUpdate();
@@ -192,6 +224,7 @@ namespace CSimulator
                     // Step 5: Process market exits then evaluate stops/targets
                     engine.ProcessMarketExits(tick.Last, tick.Time);
                     engine.EvaluateStopsAndTargets(tick.Last, tick.Time);
+
                 }
             }
 
@@ -255,7 +288,9 @@ namespace CSimulator
 
             try
             {
-                tick.Time = new DateTime(year, month, day, hour, minute, second).AddTicks(ticks);
+                // NinjaTrader tick exports use UTC timestamps.
+                // Strategy does ConvertTime(Time[0], easternZone) expecting UTC input.
+                tick.Time = new DateTime(year, month, day, hour, minute, second, DateTimeKind.Utc).AddTicks(ticks);
             }
             catch
             {

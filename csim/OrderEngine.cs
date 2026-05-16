@@ -95,12 +95,44 @@ namespace CSimulator
 
         public void SubmitMarketExit(string fromEntry, MarketPosition direction, string exitSignalName)
         {
-            _pendingMarketExits.Add(new PendingMarketExit
+            // Market exits fill immediately at current price (like NinjaTrader)
+            var entry = _activeEntries.FirstOrDefault(e =>
+                e.SignalName == fromEntry && e.Filled);
+
+            if (entry == null) return;
+
+            double price = _strategy.Close[0];
+            DateTime time = _strategy.Time[0];
+
+            _activeEntries.Remove(entry);
+            UpdatePosition();
+
+            var execution = new Execution
             {
-                FromEntry = fromEntry,
-                Direction = direction,
-                ExitSignalName = exitSignalName
-            });
+                Order = new Order
+                {
+                    Name = exitSignalName,
+                    SignalName = exitSignalName,
+                    OrderState = OrderState.Filled,
+                    Quantity = entry.Quantity,
+                    Price = price
+                },
+                Price = price,
+                Quantity = entry.Quantity,
+                MarketPosition = _strategy.Position.MarketPosition,
+                ExecutionId = GenerateExecutionId(),
+                OrderId = GenerateExecutionId()
+            };
+
+            _strategy.TriggerOnExecutionUpdate(
+                execution,
+                execution.ExecutionId,
+                price,
+                entry.Quantity,
+                _strategy.Position.MarketPosition,
+                execution.OrderId,
+                time
+            );
         }
 
         public void SetStop(string fromEntry, double price)
@@ -240,57 +272,10 @@ namespace CSimulator
         }
 
         /// <summary>
-        /// Process queued market exits. Called after OnBarUpdate.
+        /// No-op: market exits now fill immediately in SubmitMarketExit.
         /// </summary>
         public void ProcessMarketExits(double price, DateTime time)
         {
-            if (_pendingMarketExits.Count == 0) return;
-
-            var toProcess = new List<PendingMarketExit>(_pendingMarketExits);
-            _pendingMarketExits.Clear();
-
-            foreach (var exit in toProcess)
-            {
-                // Find the active entry matching fromEntry
-                var entry = _activeEntries.FirstOrDefault(e =>
-                    e.SignalName == exit.FromEntry && e.Filled);
-
-                if (entry == null) continue;
-
-                // Remove entry
-                _activeEntries.Remove(entry);
-
-                // Update position
-                UpdatePosition();
-
-                // Fire OnExecutionUpdate
-                var execution = new Execution
-                {
-                    Order = new Order
-                    {
-                        Name = exit.ExitSignalName,
-                        SignalName = exit.ExitSignalName,
-                        OrderState = OrderState.Filled,
-                        Quantity = entry.Quantity,
-                        Price = price
-                    },
-                    Price = price,
-                    Quantity = entry.Quantity,
-                    MarketPosition = _strategy.Position.MarketPosition,
-                    ExecutionId = GenerateExecutionId(),
-                    OrderId = GenerateExecutionId()
-                };
-
-                _strategy.TriggerOnExecutionUpdate(
-                    execution,
-                    execution.ExecutionId,
-                    price,
-                    entry.Quantity,
-                    _strategy.Position.MarketPosition,
-                    execution.OrderId,
-                    time
-                );
-            }
         }
 
         /// <summary>
