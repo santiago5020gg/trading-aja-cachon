@@ -2,5 +2,8 @@ node_modules/
 historicos test/
 resultados operaciones/
 sim_output/
+sim_output_*/
 bot/history/
 .claude/settings.local.json
+csim/bin/
+csim/obj/
