@@ -23,12 +23,38 @@ from datetime import datetime, timedelta
 def parse_args():
     parser = argparse.ArgumentParser(description="Tick-by-tick simulator MNQ10minV2")
     parser.add_argument("--colchon", type=int, default=5, help="ColchonStop in points (default: 5)")
+    parser.add_argument("--colchon-be", type=int, default=5, help="ColchonBreakeven in points (default: 5)")
+    parser.add_argument("--breakeven-pct", type=int, default=60, help="Breakeven activation %% (default: 60)")
     parser.add_argument("--trades", type=int, default=2, help="MaxTrades per day (default: 2)")
-    parser.add_argument("--contratos", type=int, default=2, help="MicroContratos (default: 2)")
-    parser.add_argument("--modo", choices=["1a1", "1a2"], default="1a1", help="TP mode (default: 1a2)")
+    parser.add_argument("--perdida-max", type=float, default=400.0, help="PerdidaMaxDiaria in $ (default: 400)")
+    parser.add_argument("--modo", choices=["1a1", "1a2"], default="1a2", help="TP mode (default: 1a2)")
     parser.add_argument("--cierre", type=str, default="15:50", help="Hora cierre HH:MM ET (default: 15:50)")
     parser.add_argument("--utc-offset", type=int, default=None, help="Hours to subtract for ET (auto-detected from date if omitted: 5=EST, 4=EDT)")
     parser.add_argument("--output-dir", type=str, default="sim_output", help="Output directory (default: sim_output)")
+    # Trailing TP1 (4 escalones: activacion% -> stop%)
+    parser.add_argument("--cant-trail-tp1", type=int, default=4, help="CantTrailTP1 (1-4, default: 4)")
+    parser.add_argument("--tp1-act1", type=int, default=75, help="TP1 Esc1 Activacion %% (default: 75)")
+    parser.add_argument("--tp1-stp1", type=int, default=45, help="TP1 Esc1 Stop %% (default: 45)")
+    parser.add_argument("--tp1-act2", type=int, default=85, help="TP1 Esc2 Activacion %% (default: 85)")
+    parser.add_argument("--tp1-stp2", type=int, default=60, help="TP1 Esc2 Stop %% (default: 60)")
+    parser.add_argument("--tp1-act3", type=int, default=95, help="TP1 Esc3 Activacion %% (default: 95)")
+    parser.add_argument("--tp1-stp3", type=int, default=80, help="TP1 Esc3 Stop %% (default: 80)")
+    parser.add_argument("--tp1-act4", type=int, default=99, help="TP1 Esc4 Activacion %% (default: 99)")
+    parser.add_argument("--tp1-stp4", type=int, default=95, help="TP1 Esc4 Stop %% (default: 95)")
+    # Trailing TP2 (6 escalones: activacion% -> stop%)
+    parser.add_argument("--cant-trail-tp2", type=int, default=6, help="CantTrailTP2 (1-6, default: 6)")
+    parser.add_argument("--tp2-act1", type=int, default=50, help="TP2 Esc1 Activacion %% (default: 50)")
+    parser.add_argument("--tp2-stp1", type=int, default=18, help="TP2 Esc1 Stop %% (default: 18)")
+    parser.add_argument("--tp2-act2", type=int, default=70, help="TP2 Esc2 Activacion %% (default: 70)")
+    parser.add_argument("--tp2-stp2", type=int, default=50, help="TP2 Esc2 Stop %% (default: 50)")
+    parser.add_argument("--tp2-act3", type=int, default=85, help="TP2 Esc3 Activacion %% (default: 85)")
+    parser.add_argument("--tp2-stp3", type=int, default=60, help="TP2 Esc3 Stop %% (default: 60)")
+    parser.add_argument("--tp2-act4", type=int, default=90, help="TP2 Esc4 Activacion %% (default: 90)")
+    parser.add_argument("--tp2-stp4", type=int, default=70, help="TP2 Esc4 Stop %% (default: 70)")
+    parser.add_argument("--tp2-act5", type=int, default=95, help="TP2 Esc5 Activacion %% (default: 95)")
+    parser.add_argument("--tp2-stp5", type=int, default=84, help="TP2 Esc5 Stop %% (default: 84)")
+    parser.add_argument("--tp2-act6", type=int, default=98, help="TP2 Esc6 Activacion %% (default: 98)")
+    parser.add_argument("--tp2-stp6", type=int, default=94, help="TP2 Esc6 Stop %% (default: 94)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show extra detail")
     parser.add_argument("file", nargs="?", default="historicos test/MNQ 03-26-enero-febrero-marzo.Last.txt", help="Tick .txt file path")
     return parser.parse_args()
@@ -77,16 +103,28 @@ def round_to_tick(price):
 class TickSimulator:
     """Exact port of MNQ10minV2.cs state machine operating tick-by-tick."""
 
-    def __init__(self, colchon_stop, max_trades, micro_contratos, modo_tp, hora_cierre, utc_offset, output_dir, verbose):
+    def __init__(self, colchon_stop, colchon_be, breakeven_pct, max_trades, perdida_max, modo_tp, hora_cierre,
+                 cant_trail_tp1, tp1_acts, tp1_stps, cant_trail_tp2, tp2_acts, tp2_stps,
+                 utc_offset, output_dir, verbose):
         self.colchon_stop = colchon_stop
+        self.colchon_be = colchon_be
+        self.breakeven_pct = breakeven_pct
         self.max_trades = max_trades
-        self.micro_contratos = micro_contratos
+        self.perdida_max = perdida_max
         self.modo_tp = modo_tp
         self.utc_offset = utc_offset  # None = auto-detect per date
         self._cached_offset_date = None
         self._cached_offset_value = 4
         self.output_dir = output_dir
         self.verbose = verbose
+
+        # Trailing params
+        self.cant_trail_tp1 = cant_trail_tp1
+        self.tp1_acts = tp1_acts  # list of 4 activation %
+        self.tp1_stps = tp1_stps  # list of 4 stop %
+        self.cant_trail_tp2 = cant_trail_tp2
+        self.tp2_acts = tp2_acts  # list of 6 activation %
+        self.tp2_stps = tp2_stps  # list of 6 stop %
 
         # Parse hora cierre
         hc_parts = hora_cierre.split(":")
@@ -98,19 +136,11 @@ class TickSimulator:
         self.max_take_profits = round(max_trades / 2)
         self.max_breakevens = round(max_trades / 2)
 
-        if modo_tp == "1a1":
-            self.qty_tp1 = micro_contratos
-            self.qty_tp2 = 0
-        else:
-            if micro_contratos >= 3:
-                self.qty_tp1 = micro_contratos - 1
-                self.qty_tp2 = 1
-            elif micro_contratos == 2:
-                self.qty_tp1 = 1
-                self.qty_tp2 = 1
-            else:
-                self.qty_tp1 = 0
-                self.qty_tp2 = 1
+        # Position sizing is computed dynamically per day (after rango forms)
+        self.contratos_calculados = 0
+        self.trades_permitidos_hoy = 0
+        self.qty_tp1 = 0
+        self.qty_tp2 = 0
 
         # Bar builder state
         self.current_bar_start = None  # datetime of current bar period start
@@ -141,6 +171,11 @@ class TickSimulator:
         self.rango_high = -999999.0
         self.rango_low = 999999.0
         self.rango_pts = 0.0
+
+        self.contratos_calculados = 0
+        self.trades_permitidos_hoy = 0
+        self.qty_tp1 = 0
+        self.qty_tp2 = 0
 
         self.qty_tp1_active = False
         self.qty_tp2_active = False
@@ -174,11 +209,12 @@ class TickSimulator:
     def run(self, filepath):
         """Process entire tick file."""
         print(f"=== PARAMETROS ===")
-        print(f"  ColchonStop: {self.colchon_stop}")
-        print(f"  Max Trades/Dia: {self.max_trades}")
-        print(f"  Micro Contratos: {self.micro_contratos}")
-        print(f"  Modo TP: {self.modo_tp} (TP1 x{self.qty_tp1}, TP2 x{self.qty_tp2})")
+        print(f"  ColchonStop: {self.colchon_stop} | ColchonBE: {self.colchon_be} | BreakevenPct: {self.breakeven_pct}%")
+        print(f"  Max Trades/Dia: {self.max_trades} | PerdidaMaxDiaria: ${self.perdida_max:.2f}")
+        print(f"  Modo TP: {self.modo_tp}")
         print(f"  Max Stops: {self.max_stops_puros} | Max TPs: {self.max_take_profits} | Max BEs: {self.max_breakevens}")
+        print(f"  Trailing TP1 ({self.cant_trail_tp1} esc): {list(zip(self.tp1_acts[:self.cant_trail_tp1], self.tp1_stps[:self.cant_trail_tp1]))}")
+        print(f"  Trailing TP2 ({self.cant_trail_tp2} esc): {list(zip(self.tp2_acts[:self.cant_trail_tp2], self.tp2_stps[:self.cant_trail_tp2]))}")
         print(f"  Hora Cierre: {self.hora_cierre_h:02d}:{self.hora_cierre_m:02d} ET")
         if self.utc_offset is not None:
             print(f"  UTC Offset: -{self.utc_offset}h (manual)")
@@ -415,11 +451,46 @@ class TickSimulator:
             self.rango_pts = self.rango_high - self.rango_low
             self.stop_distance = self.rango_pts + self.colchon_stop
 
+            # --- Motor de Riesgo: Position Sizing Dinamico ---
+            riesgo_1_micro = (self.rango_pts + self.colchon_stop) * POINT_VALUE
+            presupuesto_ideal = self.perdida_max / self.max_trades
+
+            if presupuesto_ideal >= riesgo_1_micro:
+                self.contratos_calculados = int(presupuesto_ideal // riesgo_1_micro)
+                self.trades_permitidos_hoy = self.max_trades
+            elif riesgo_1_micro <= self.perdida_max:
+                self.contratos_calculados = 1
+                self.trades_permitidos_hoy = int(self.perdida_max // riesgo_1_micro)
+            else:
+                self.contratos_calculados = 0
+                self.trades_permitidos_hoy = 0
+                self.estado = "DiaTerminado"
+                self.last_decision = f"FUERA_PRESUPUESTO riesgo=${riesgo_1_micro:.2f} > max=${self.perdida_max:.2f}"
+                if self.verbose:
+                    print(f"  [09:{minute:02d}:{second:02d}] {self.last_decision}")
+                return
+
+            # --- Split TP1/TP2 segun contratos y modo ---
+            if self.modo_tp == "1a1":
+                self.qty_tp1 = self.contratos_calculados
+                self.qty_tp2 = 0
+            else:
+                if self.contratos_calculados >= 3:
+                    self.qty_tp1 = self.contratos_calculados - 1
+                    self.qty_tp2 = 1
+                elif self.contratos_calculados == 2:
+                    self.qty_tp1 = 1
+                    self.qty_tp2 = 1
+                else:
+                    self.qty_tp1 = 0
+                    self.qty_tp2 = 1
+
             self.estado = "OrdenesPuestas"
             self.last_decision = f"ORDENES_PUESTAS H={self.rango_high:.2f} L={self.rango_low:.2f} pts={self.rango_pts:.2f} stop={self.stop_distance:.2f}"
 
             if self.verbose:
                 print(f"  [09:{minute:02d}:{second:02d}] Rango formado: H={self.rango_high:.2f} L={self.rango_low:.2f} pts={self.rango_pts:.2f} stopDist={self.stop_distance:.2f}")
+                print(f"  [09:{minute:02d}:{second:02d}] Position sizing: contratos={self.contratos_calculados} tradesPermitidos={self.trades_permitidos_hoy} (riesgo1Micro=${riesgo_1_micro:.2f} presupuesto=${presupuesto_ideal:.2f})")
 
             # IMPORTANT: After transition, check if this same tick triggers a breakout
             # (C# continues processing in the same OnBarUpdate call)
@@ -439,7 +510,7 @@ class TickSimulator:
     def _check_ordenes(self, hour, minute, second, price):
         """OrdenesPuestas state: check for entry signals."""
 
-        if self.trades_today >= self.max_trades:
+        if self.trades_today >= self.trades_permitidos_hoy:
             self.estado = "DiaTerminado"
             self.last_decision = "DIA_TERMINADO_MAX_TRADES"
             return
@@ -655,9 +726,10 @@ class TickSimulator:
 
         # ─── Trailing logic (only if no exits this tick) ──────────────────────
 
-        # Breakeven at 60%
-        if not self.breakeven_hit and unrealized >= sd * 0.60:
-            be_stop = round_to_tick(entry + 5) if d == 1 else round_to_tick(entry - 5)
+        # Breakeven
+        be_threshold = self.breakeven_pct / 100.0
+        if not self.breakeven_hit and unrealized >= sd * be_threshold:
+            be_stop = round_to_tick(entry + self.colchon_be) if d == 1 else round_to_tick(entry - self.colchon_be)
             if self.qty_tp1_active:
                 self.tp1_stop = be_stop
             if self.qty_tp2_active:
@@ -665,86 +737,37 @@ class TickSimulator:
             self.breakeven_hit = True
             self.last_decision = f"BREAKEVEN stop={be_stop:.2f}"
             if self.verbose:
-                print(f"  [{hour:02d}:{minute:02d}:{second:02d}] BREAKEVEN activated @{be_stop:.2f} (unrealized={unrealized:.2f}, threshold={sd * 0.60:.2f})")
+                print(f"  [{hour:02d}:{minute:02d}:{second:02d}] BREAKEVEN activated @{be_stop:.2f} (unrealized={unrealized:.2f}, threshold={sd * be_threshold:.2f})")
             return
 
-        # Trailing TP1: 75%->45%, 85%->60%, 95%->80%, 99%->95%
+        # Trailing TP1: escalones configurables (respeta cant_trail_tp1)
         if self.qty_tp1_active and self.breakeven_hit:
-            if self.tp1_stop_nivel < 4 and unrealized >= sd * 0.99:
-                self.tp1_stop = round_to_tick(entry + (sd * 0.95)) if d == 1 else round_to_tick(entry - (sd * 0.95))
-                self.tp1_stop_nivel = 4
-                self.last_decision = f"TP1_STOP95={self.tp1_stop:.2f}"
-                if self.verbose:
-                    print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP1 trailing nivel 4: stop={self.tp1_stop:.2f}")
-                return
-            elif self.tp1_stop_nivel < 3 and unrealized >= sd * 0.95:
-                self.tp1_stop = round_to_tick(entry + (sd * 0.80)) if d == 1 else round_to_tick(entry - (sd * 0.80))
-                self.tp1_stop_nivel = 3
-                self.last_decision = f"TP1_STOP80={self.tp1_stop:.2f}"
-                if self.verbose:
-                    print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP1 trailing nivel 3: stop={self.tp1_stop:.2f}")
-                return
-            elif self.tp1_stop_nivel < 2 and unrealized >= sd * 0.85:
-                self.tp1_stop = round_to_tick(entry + (sd * 0.60)) if d == 1 else round_to_tick(entry - (sd * 0.60))
-                self.tp1_stop_nivel = 2
-                self.last_decision = f"TP1_STOP60={self.tp1_stop:.2f}"
-                if self.verbose:
-                    print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP1 trailing nivel 2: stop={self.tp1_stop:.2f}")
-                return
-            elif self.tp1_stop_nivel < 1 and unrealized >= sd * 0.75:
-                self.tp1_stop = round_to_tick(entry + (sd * 0.45)) if d == 1 else round_to_tick(entry - (sd * 0.45))
-                self.tp1_stop_nivel = 1
-                self.last_decision = f"TP1_STOP45={self.tp1_stop:.2f}"
-                if self.verbose:
-                    print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP1 trailing nivel 1: stop={self.tp1_stop:.2f}")
-                return
+            for nivel in range(self.cant_trail_tp1, 0, -1):
+                if self.tp1_stop_nivel < nivel and self.cant_trail_tp1 >= nivel:
+                    act = self.tp1_acts[nivel - 1] / 100.0
+                    stp = self.tp1_stps[nivel - 1] / 100.0
+                    if unrealized >= sd * act:
+                        self.tp1_stop = round_to_tick(entry + (sd * stp)) if d == 1 else round_to_tick(entry - (sd * stp))
+                        self.tp1_stop_nivel = nivel
+                        self.last_decision = f"TP1_STOP{self.tp1_stps[nivel-1]}={self.tp1_stop:.2f}"
+                        if self.verbose:
+                            print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP1 trailing nivel {nivel}: stop={self.tp1_stop:.2f}")
+                        return
 
-        # Trailing TP2: 50%->18%, 70%->50%, 85%->60%, 90%->70%, 95%->84%, 98%->94%
+        # Trailing TP2: escalones configurables (respeta cant_trail_tp2)
         if self.qty_tp2_active and self.breakeven_hit:
             tp2_target_dist = sd * 2
-
-            if self.tp2_stop_nivel < 6 and unrealized >= tp2_target_dist * 0.98:
-                self.tp2_stop = round_to_tick(entry + (tp2_target_dist * 0.94)) if d == 1 else round_to_tick(entry - (tp2_target_dist * 0.94))
-                self.tp2_stop_nivel = 6
-                self.last_decision = f"TP2_STOP94={self.tp2_stop:.2f}"
-                if self.verbose:
-                    print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP2 trailing nivel 6: stop={self.tp2_stop:.2f}")
-                return
-            elif self.tp2_stop_nivel < 5 and unrealized >= tp2_target_dist * 0.95:
-                self.tp2_stop = round_to_tick(entry + (tp2_target_dist * 0.84)) if d == 1 else round_to_tick(entry - (tp2_target_dist * 0.84))
-                self.tp2_stop_nivel = 5
-                self.last_decision = f"TP2_STOP84={self.tp2_stop:.2f}"
-                if self.verbose:
-                    print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP2 trailing nivel 5: stop={self.tp2_stop:.2f}")
-                return
-            elif self.tp2_stop_nivel < 4 and unrealized >= tp2_target_dist * 0.90:
-                self.tp2_stop = round_to_tick(entry + (tp2_target_dist * 0.70)) if d == 1 else round_to_tick(entry - (tp2_target_dist * 0.70))
-                self.tp2_stop_nivel = 4
-                self.last_decision = f"TP2_STOP70={self.tp2_stop:.2f}"
-                if self.verbose:
-                    print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP2 trailing nivel 4: stop={self.tp2_stop:.2f}")
-                return
-            elif self.tp2_stop_nivel < 3 and unrealized >= tp2_target_dist * 0.85:
-                self.tp2_stop = round_to_tick(entry + (tp2_target_dist * 0.60)) if d == 1 else round_to_tick(entry - (tp2_target_dist * 0.60))
-                self.tp2_stop_nivel = 3
-                self.last_decision = f"TP2_STOP60={self.tp2_stop:.2f}"
-                if self.verbose:
-                    print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP2 trailing nivel 3: stop={self.tp2_stop:.2f}")
-                return
-            elif self.tp2_stop_nivel < 2 and unrealized >= tp2_target_dist * 0.70:
-                self.tp2_stop = round_to_tick(entry + (tp2_target_dist * 0.50)) if d == 1 else round_to_tick(entry - (tp2_target_dist * 0.50))
-                self.tp2_stop_nivel = 2
-                self.last_decision = f"TP2_STOP50={self.tp2_stop:.2f}"
-                if self.verbose:
-                    print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP2 trailing nivel 2: stop={self.tp2_stop:.2f}")
-                return
-            elif self.tp2_stop_nivel < 1 and unrealized >= tp2_target_dist * 0.50:
-                self.tp2_stop = round_to_tick(entry + (tp2_target_dist * 0.18)) if d == 1 else round_to_tick(entry - (tp2_target_dist * 0.18))
-                self.tp2_stop_nivel = 1
-                self.last_decision = f"TP2_STOP18={self.tp2_stop:.2f}"
-                if self.verbose:
-                    print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP2 trailing nivel 1: stop={self.tp2_stop:.2f}")
-                return
+            for nivel in range(self.cant_trail_tp2, 0, -1):
+                if self.tp2_stop_nivel < nivel and self.cant_trail_tp2 >= nivel:
+                    act = self.tp2_acts[nivel - 1] / 100.0
+                    stp = self.tp2_stps[nivel - 1] / 100.0
+                    if unrealized >= tp2_target_dist * act:
+                        self.tp2_stop = round_to_tick(entry + (tp2_target_dist * stp)) if d == 1 else round_to_tick(entry - (tp2_target_dist * stp))
+                        self.tp2_stop_nivel = nivel
+                        self.last_decision = f"TP2_STOP{self.tp2_stps[nivel-1]}={self.tp2_stop:.2f}"
+                        if self.verbose:
+                            print(f"  [{hour:02d}:{minute:02d}:{second:02d}] TP2 trailing nivel {nivel}: stop={self.tp2_stop:.2f}")
+                        return
 
     def _post_trade_transition(self, exit_reason, hour, minute, second):
         """Handle state transition after a trade is fully closed."""
@@ -760,7 +783,7 @@ class TickSimulator:
             if self.take_profits_hoy >= self.max_take_profits:
                 self.estado = "DiaTerminado"
                 self.last_decision = f"DIA_TERMINADO_MAX_TP ({self.take_profits_hoy})"
-            elif self.trades_today >= self.max_trades:
+            elif self.trades_today >= self.trades_permitidos_hoy:
                 self.estado = "DiaTerminado"
                 self.last_decision = "DIA_TERMINADO_MAX_TRADES"
             else:
@@ -776,7 +799,7 @@ class TickSimulator:
             if self.stops_puros >= self.max_stops_puros:
                 self.estado = "DiaTerminado"
                 self.last_decision = f"DIA_TERMINADO_MAX_STOPS ({self.stops_puros})"
-            elif self.trades_today >= self.max_trades:
+            elif self.trades_today >= self.trades_permitidos_hoy:
                 self.estado = "DiaTerminado"
                 self.last_decision = "DIA_TERMINADO_MAX_TRADES"
             else:
@@ -790,7 +813,7 @@ class TickSimulator:
             if self.breakevens_hoy >= self.max_breakevens:
                 self.estado = "DiaTerminado"
                 self.last_decision = f"DIA_TERMINADO_MAX_BE ({self.breakevens_hoy})"
-            elif self.trades_today >= self.max_trades:
+            elif self.trades_today >= self.trades_permitidos_hoy:
                 self.estado = "DiaTerminado"
                 self.last_decision = "DIA_TERMINADO_MAX_TRADES"
             else:
@@ -951,10 +974,18 @@ def main():
 
     sim = TickSimulator(
         colchon_stop=args.colchon,
+        colchon_be=args.colchon_be,
+        breakeven_pct=args.breakeven_pct,
         max_trades=args.trades,
-        micro_contratos=args.contratos,
+        perdida_max=args.perdida_max,
         modo_tp=args.modo,
         hora_cierre=args.cierre,
+        cant_trail_tp1=args.cant_trail_tp1,
+        tp1_acts=[args.tp1_act1, args.tp1_act2, args.tp1_act3, args.tp1_act4],
+        tp1_stps=[args.tp1_stp1, args.tp1_stp2, args.tp1_stp3, args.tp1_stp4],
+        cant_trail_tp2=args.cant_trail_tp2,
+        tp2_acts=[args.tp2_act1, args.tp2_act2, args.tp2_act3, args.tp2_act4, args.tp2_act5, args.tp2_act6],
+        tp2_stps=[args.tp2_stp1, args.tp2_stp2, args.tp2_stp3, args.tp2_stp4, args.tp2_stp5, args.tp2_stp6],
         utc_offset=args.utc_offset,
         output_dir=args.output_dir,
         verbose=args.verbose
