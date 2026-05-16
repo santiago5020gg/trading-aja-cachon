@@ -27,19 +27,24 @@ namespace NinjaTrader.NinjaScript.Strategies
         public int ColchonBreakeven { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Max Trades/Dia", GroupName = "1. Risk", Order = 3)]
+        [Range(1, 99)]
+        [Display(Name = "Breakeven Activacion (%)", GroupName = "1. Risk", Order = 3)]
+        public int BreakevenPct { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Max Trades/Dia", GroupName = "1. Risk", Order = 4)]
         public int MaxTrades { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Pérdida Máxima Diaria ($)", GroupName = "1. Risk", Order = 4)]
+        [Display(Name = "Pérdida Máxima Diaria ($)", GroupName = "1. Risk", Order = 5)]
         public double PerdidaMaxDiaria { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Modo TP (1a1 o 1a2)", GroupName = "1. Risk", Order = 5)]
+        [Display(Name = "Modo TP (1a1 o 1a2)", GroupName = "1. Risk", Order = 6)]
         public TPMode ModoTP { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Modo Operacion", GroupName = "1. Risk", Order = 6)]
+        [Display(Name = "Modo Operacion", GroupName = "1. Risk", Order = 7)]
         public OperationMode ModoOperacion { get; set; }
 
         [NinjaScriptProperty]
@@ -247,6 +252,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 ColchonStop = 5;
                 ColchonBreakeven = 5;
+                BreakevenPct = 60;
                 MaxTrades = 2;
                 PerdidaMaxDiaria = 400;
                 ModoTP = TPMode.Con1a2;
@@ -793,8 +799,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             string signalTP1 = tradeDirection == 1 ? "TP1Long" : "TP1Short";
             string signalTP2 = tradeDirection == 1 ? "TP2Long" : "TP2Short";
 
-            // Breakeven al 60% — aplica a ambos TPs activos
-            if (!breakevenHit && unrealPts >= stopDistance * 0.60)
+            // Breakeven — aplica a ambos TPs activos
+            if (!breakevenHit && unrealPts >= stopDistance * (BreakevenPct / 100.0))
             {
                 double beStop = tradeDirection == 1 ? entryPrice + ColchonBreakeven : entryPrice - ColchonBreakeven;
                 if (qtyTP1 > 0) SetStopLoss(signalTP1, CalculationMode.Price, beStop, false);
@@ -1217,7 +1223,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
                 else
                 {
-                    if (!breakevenHit && unrealPts >= stopDistance * 0.60)
+                    if (!breakevenHit && unrealPts >= stopDistance * (BreakevenPct / 100.0))
                     {
                         double beStop = tradeDirection == 1 ? entryPrice + ColchonBreakeven : entryPrice - ColchonBreakeven;
                         vizStopTP1 = beStop;
@@ -1269,7 +1275,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
                 else
                 {
-                    if (!breakevenHit && unrealPts >= stopDistance * 0.60)
+                    if (!breakevenHit && unrealPts >= stopDistance * (BreakevenPct / 100.0))
                     {
                         double beStop = tradeDirection == 1 ? entryPrice + ColchonBreakeven : entryPrice - ColchonBreakeven;
                         vizStopTP2 = beStop;
@@ -1364,12 +1370,11 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (entryPrice == 0 || stopDistance == 0) return;
 
-            // Breakeven activation 60%
             double beActPrice = tradeDirection == 1
-                ? entryPrice + (stopDistance * 0.60)
-                : entryPrice - (stopDistance * 0.60);
+                ? entryPrice + (stopDistance * (BreakevenPct / 100.0))
+                : entryPrice - (stopDistance * (BreakevenPct / 100.0));
             Draw.HorizontalLine(this, vizPrefix + "BE", beActPrice, Brushes.Yellow, DashStyleHelper.Dot, 1);
-            Draw.Text(this, vizPrefix + "BET", "60%", 0, beActPrice, Brushes.Yellow);
+            Draw.Text(this, vizPrefix + "BET", string.Format("{0}%", BreakevenPct), 0, beActPrice, Brushes.Yellow);
 
             // TP1 activaciones (solo CantTrailTP1 escalones)
             if (qtyTP1 > 0)
@@ -1419,14 +1424,13 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             if (entryPrice == 0 || stopDistance == 0) return;
 
-            // Breakeven: activacion 60%
             if (!breakevenHit)
             {
                 double beActPrice = tradeDirection == 1
-                    ? entryPrice + (stopDistance * 0.60)
-                    : entryPrice - (stopDistance * 0.60);
+                    ? entryPrice + (stopDistance * (BreakevenPct / 100.0))
+                    : entryPrice - (stopDistance * (BreakevenPct / 100.0));
                 Draw.HorizontalLine(this, "BE_Act", beActPrice, Brushes.Yellow, DashStyleHelper.Dot, 1);
-                Draw.Text(this, "BE_ActT", "60%", 0, beActPrice, Brushes.Yellow);
+                Draw.Text(this, "BE_ActT", string.Format("{0}%", BreakevenPct), 0, beActPrice, Brushes.Yellow);
             }
 
             // TP1 activaciones (solo CantTrailTP1)
@@ -1502,7 +1506,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (overwrite || !File.Exists(csvLogPath))
                     File.WriteAllText(csvLogPath, "Date,Time,Action,Direction,EntryPrice,ExitPrice,StopDist,RangoHigh,RangoLow,RangoPts,PnL,DailyPnL,TotalPnL,ExitReason,TradesToday\n");
                 if (overwrite || !File.Exists(csvDailyPath))
-                    File.WriteAllText(csvDailyPath, "Date,DailyPnL,TotalPnL,Trades,RangoPts,MaxTrades,PerdidaMaxDiaria,ModoTP,ColchonStop,ColchonBreakeven,ContratosCalc,TradesPermitidos,StopsPuros,TakeProfits,Breakevens,PeakPnL\n");
+                    File.WriteAllText(csvDailyPath, "Date,DailyPnL,TotalPnL,Trades,RangoPts,MaxTrades,PerdidaMaxDiaria,ModoTP,ColchonStop,ColchonBreakeven,BreakevenPct,ContratosCalc,TradesPermitidos,StopsPuros,TakeProfits,Breakevens,PeakPnL\n");
                 if (overwrite || !File.Exists(csvBarLogPath))
                     File.WriteAllText(csvBarLogPath, "Date,Time,Open,High,Low,Close,Volume,Estado,Position,DailyPnL,TotalPnL,TradesToday,Decision\n");
             }
@@ -1531,9 +1535,9 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (ModoLog == LogMode.Off) return;
             try
             {
-                string line = string.Format("{0:yyyy-MM-dd},{1:F2},{2:F2},{3},{4:F2},{5},{6:F2},{7},{8},{9},{10},{11},{12},{13},{14},{15:F2}\n",
+                string line = string.Format("{0:yyyy-MM-dd},{1:F2},{2:F2},{3},{4:F2},{5},{6:F2},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16:F2}\n",
                     nyDate, dailyPnL, totalPnL, tradesToday, rangoPuntos,
-                    MaxTrades, PerdidaMaxDiaria, ModoTP, ColchonStop, ColchonBreakeven,
+                    MaxTrades, PerdidaMaxDiaria, ModoTP, ColchonStop, ColchonBreakeven, BreakevenPct,
                     contratosCalculados, tradesPermitidosHoy, stopsPuros, takeProfitsHoy, breakevensHoy, peakDailyPnL);
                 File.AppendAllText(csvDailyPath, line);
             }
