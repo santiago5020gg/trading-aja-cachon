@@ -191,6 +191,7 @@ class TickSimulator:
         self.pending_flip_direction = 0
 
         self.daily_pnl = 0.0
+        self.peak_daily_pnl = 0.0
         self.trades_today = 0
         self.stops_puros = 0
         self.take_profits_hoy = 0
@@ -708,6 +709,16 @@ class TickSimulator:
 
         # ─── Check if trade is fully closed ───────────────────────────────────
         if not self.qty_tp1_active and not self.qty_tp2_active:
+            # Trailing drawdown diario (replica C# OnExecutionUpdate)
+            if self.daily_pnl > self.peak_daily_pnl:
+                self.peak_daily_pnl = self.daily_pnl
+            drawdown_desde_peak = self.peak_daily_pnl - self.daily_pnl
+            if drawdown_desde_peak >= self.perdida_max:
+                self.trade_direction = 0
+                self.estado = "DiaTerminado"
+                self.last_decision = f"DIA_TERMINADO_DRAWDOWN peak=${self.peak_daily_pnl:.2f} actual=${self.daily_pnl:.2f} dd=${drawdown_desde_peak:.2f}"
+                return
+
             # Determine overall exit reason
             reasons_set = set(r[1] for r in exit_reasons)
             if "TakeProfit" in reasons_set:
@@ -810,6 +821,16 @@ class TickSimulator:
 
         else:  # Breakeven
             self.breakevens_hoy += 1
+
+            # Recalcular trades permitidos basado en perdida real acumulada (replica C#)
+            perdida_real_acumulada = abs(self.daily_pnl) if self.daily_pnl < 0 else 0
+            presupuesto_restante = self.perdida_max - perdida_real_acumulada
+            riesgo_1_micro = self.stop_distance * POINT_VALUE
+            if riesgo_1_micro > 0 and presupuesto_restante >= riesgo_1_micro:
+                self.trades_permitidos_hoy = self.trades_today + int(presupuesto_restante // riesgo_1_micro)
+            if self.trades_permitidos_hoy > self.max_trades:
+                self.trades_permitidos_hoy = self.max_trades
+
             if self.breakevens_hoy >= self.max_breakevens:
                 self.estado = "DiaTerminado"
                 self.last_decision = f"DIA_TERMINADO_MAX_BE ({self.breakevens_hoy})"
