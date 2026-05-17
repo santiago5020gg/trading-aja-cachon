@@ -112,11 +112,19 @@ namespace CSimulator
             var logProp = typeof(MNQ10minV2).GetProperty("ModoLog");
             logProp.SetValue(strategy, Enum.Parse(logProp.PropertyType, "Month"));
 
-            // Override output directory if specified
+            // Build output directory: csim/output/<months>-<filters>
             string outputDir = config.OutputDir;
-            if (outputDir != null)
+            if (outputDir == null)
             {
-                Directory.CreateDirectory(outputDir);
+                string dirName = BuildOutputDirName(config);
+                string csimDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+                // Go up from bin/Debug/net9.0 to csim/
+                string csimRoot = Path.GetFullPath(Path.Combine(csimDir, "..", "..", ".."));
+                outputDir = Path.Combine(csimRoot, "output", dirName);
+            }
+
+            Directory.CreateDirectory(outputDir);
+            {
                 var flags = BindingFlags.NonPublic | BindingFlags.Instance;
                 typeof(MNQ10minV2).GetField("botHistoryDir", flags).SetValue(strategy, outputDir);
                 typeof(MNQ10minV2).GetField("csvLogPath", flags)
@@ -125,7 +133,6 @@ namespace CSimulator
                     .SetValue(strategy, Path.Combine(outputDir, "mnq10minv2_daily_log.csv"));
                 typeof(MNQ10minV2).GetField("csvBarLogPath", flags)
                     .SetValue(strategy, Path.Combine(outputDir, "mnq10minv2_bar_log.csv"));
-                // Re-write CSV headers at new paths
                 typeof(MNQ10minV2).GetMethod("InitCsvLogs", flags)
                     .Invoke(strategy, null);
             }
@@ -141,13 +148,6 @@ namespace CSimulator
             // Run simulation
             long tickCount = RunSimulation(strategy, engine, config.TickFile);
 
-            // Determine actual output directory for display
-            if (outputDir == null)
-            {
-                var field = typeof(MNQ10minV2).GetField("botHistoryDir",
-                    BindingFlags.NonPublic | BindingFlags.Instance);
-                outputDir = (string)field.GetValue(strategy);
-            }
 
             // Summary
             Console.WriteLine();
@@ -160,6 +160,75 @@ namespace CSimulator
             string dailyPath = Path.Combine(outputDir, "mnq10minv2_daily_log.csv");
             if (File.Exists(dailyPath))
                 PrintDailySummary(dailyPath);
+        }
+
+        // ───────────────────────────────────────────────
+        // Auto-generate output dir name from tick file months + params
+        // ───────────────────────────────────────────────
+
+        static string BuildOutputDirName(SimConfig config)
+        {
+            string[] monthAbbrevs = { "ene", "feb", "mar", "abr", "may", "jun",
+                "jul", "ago", "sep", "oct", "nov", "dic" };
+
+            // Detect months from tick file name
+            string fileName = Path.GetFileNameWithoutExtension(config.TickFile).ToLower();
+            var months = new List<string>();
+            string[] spanishMonths = { "enero", "febrero", "marzo", "abril", "mayo", "junio",
+                "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre" };
+            for (int i = 0; i < spanishMonths.Length; i++)
+            {
+                if (fileName.Contains(spanishMonths[i]))
+                    months.Add(monthAbbrevs[i]);
+            }
+
+            // If no months found in name, scan first few lines to detect date range
+            if (months.Count == 0)
+            {
+                try
+                {
+                    var detectedMonths = new HashSet<int>();
+                    using (var reader = new StreamReader(config.TickFile))
+                    {
+                        // Read first line for start month
+                        string first = reader.ReadLine();
+                        if (first != null && first.Length >= 6)
+                        {
+                            int m = int.Parse(first.Substring(4, 2));
+                            detectedMonths.Add(m);
+                        }
+                        // Seek to end for last month (read last 500 bytes)
+                    }
+                    // Read last line
+                    var allBytes = new FileStream(config.TickFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    long seekPos = Math.Max(0, allBytes.Length - 200);
+                    allBytes.Seek(seekPos, SeekOrigin.Begin);
+                    var tail = new StreamReader(allBytes);
+                    string lastLine = null;
+                    string l;
+                    while ((l = tail.ReadLine()) != null)
+                    {
+                        if (l.Length > 10) lastLine = l;
+                    }
+                    tail.Close();
+                    if (lastLine != null && lastLine.Length >= 6)
+                    {
+                        int m = int.Parse(lastLine.Substring(4, 2));
+                        detectedMonths.Add(m);
+                    }
+
+                    foreach (int m in detectedMonths.OrderBy(x => x))
+                        months.Add(monthAbbrevs[m - 1]);
+                }
+                catch { }
+            }
+
+            string monthPart = months.Count > 0 ? string.Join("-", months) : "sim";
+
+            string filters = $"cs{config.ColchonStop}-cbe{config.ColchonBreakeven}-bk{config.BreakevenPct}" +
+                             $"-mt{config.MaxTrades}-pmd{config.PerdidaMaxDiaria:0}-{config.ModoTP}";
+
+            return $"{monthPart}-{filters}";
         }
 
         // ───────────────────────────────────────────────

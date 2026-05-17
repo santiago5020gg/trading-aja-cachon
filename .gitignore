@@ -7,3 +7,4 @@ bot/history/
 .claude/settings.local.json
 csim/bin/
 csim/obj/
+csim/output/
