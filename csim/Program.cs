@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using NinjaTrader.Cbi;
 using NinjaTrader.NinjaScript.Strategies;
@@ -152,6 +154,143 @@ namespace CSimulator
             Console.WriteLine("=== RESULTADO ===");
             Console.WriteLine($"  Ticks procesados: {tickCount:N0}");
             Console.WriteLine($"  Archivos generados en: {outputDir}");
+            Console.WriteLine();
+
+            // Print daily summary table
+            string dailyPath = Path.Combine(outputDir, "mnq10minv2_daily_log.csv");
+            if (File.Exists(dailyPath))
+                PrintDailySummary(dailyPath);
+        }
+
+        // ───────────────────────────────────────────────
+        // Daily summary table
+        // ───────────────────────────────────────────────
+
+        static void PrintDailySummary(string dailyPath)
+        {
+            var lines = File.ReadAllLines(dailyPath);
+            if (lines.Length < 2) return;
+
+            string[] monthNames = { "", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre" };
+
+            // Header: Date,DailyPnL,TotalPnL,Trades,RangoPts,...
+            // CSV uses comma as decimal separator (Spanish locale from strategy)
+            // Example: 2026-01-02,-343,00,-343,00,3,83,25
+            // Strategy: date is always 10 chars, then parse fields knowing decimals use ,XX pattern
+
+            var days = new List<(DateTime date, double pnl, int trades)>();
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var fields = ParseDailyCsvLine(lines[i]);
+                if (fields == null || fields.Count < 4) continue;
+
+                if (!DateTime.TryParse(fields[0], CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime date))
+                    continue;
+                string pnlStr = fields[1].Replace(',', '.');
+                if (!double.TryParse(pnlStr, NumberStyles.Float, CultureInfo.InvariantCulture, out double pnl))
+                    continue;
+                if (!int.TryParse(fields[3], out int trades))
+                    continue;
+                if (trades == 0) continue;
+
+                days.Add((date, pnl, trades));
+            }
+
+            if (days.Count == 0) return;
+
+            Console.WriteLine("================================================================================");
+            Console.WriteLine("RESUMEN");
+            Console.WriteLine("================================================================================");
+
+            double grandTotal = 0;
+            int grandTrades = 0;
+            int daysOperated = 0;
+
+            var grouped = days.GroupBy(d => new { d.date.Year, d.date.Month });
+
+            foreach (var month in grouped)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"{monthNames[month.Key.Month]} {month.Key.Year}");
+                Console.WriteLine();
+                Console.WriteLine("  dia   PnL          #trades   acumulado");
+
+                double monthAccum = 0;
+                int monthTrades = 0;
+
+                foreach (var day in month)
+                {
+                    monthAccum += day.pnl;
+                    monthTrades += day.trades;
+                    daysOperated++;
+                    grandTotal += day.pnl;
+                    grandTrades += day.trades;
+
+                    string pnlFmt = FormatMoney(day.pnl);
+                    string accumFmt = FormatMoney(monthAccum);
+
+                    Console.WriteLine($"  {day.date.Day,-5} {pnlFmt,-12} {day.trades,-9} {accumFmt}");
+                }
+
+                Console.WriteLine("  ---   ---          ---       ---");
+                Console.WriteLine($"  MES   {FormatMoney(monthAccum),-12} {monthTrades,-9}");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("================================================================================");
+            Console.WriteLine($"  Dias operados: {daysOperated}");
+            Console.WriteLine($"  Total Trades: {grandTrades}");
+            Console.WriteLine($"  PnL Total: {FormatMoney(grandTotal)}");
+            double avg = daysOperated > 0 ? grandTotal / daysOperated : 0;
+            Console.WriteLine($"  Promedio diario: {FormatMoney(avg)}");
+            Console.WriteLine();
+        }
+
+        // Parse daily CSV with comma as decimal separator (Spanish locale).
+        // Header: Date,DailyPnL,TotalPnL,Trades,RangoPts,...
+        // Example: "2026-01-02,-343,00,-598,50,3,83,25"
+        // We know field positions: 0=Date, 1=DailyPnL(float), 2=TotalPnL(float), 3=Trades(int), 4=RangoPts(float)
+        static List<string> ParseDailyCsvLine(string line)
+        {
+            if (line.Length < 10) return null;
+            string date = line.Substring(0, 10);
+            if (line.Length < 11 || line[10] != ',') return null;
+
+            string rest = line.Substring(11);
+            var parts = rest.Split(',');
+            var tokens = new List<string> { date };
+
+            int idx = 0;
+            while (idx < parts.Length)
+            {
+                // tokens.Count == 3 means we're about to parse Trades (integer field)
+                if (tokens.Count == 3)
+                {
+                    tokens.Add(parts[idx]);
+                    idx++;
+                }
+                else if (idx + 1 < parts.Length && parts[idx + 1].Length == 2 &&
+                         int.TryParse(parts[idx + 1], out _))
+                {
+                    tokens.Add(parts[idx] + "," + parts[idx + 1]);
+                    idx += 2;
+                }
+                else
+                {
+                    tokens.Add(parts[idx]);
+                    idx++;
+                }
+            }
+            return tokens;
+        }
+
+        static string FormatMoney(double value)
+        {
+            if (value >= 0)
+                return $"${value.ToString("F2", CultureInfo.InvariantCulture)}";
+            return $"$-{Math.Abs(value).ToString("F2", CultureInfo.InvariantCulture)}";
         }
 
         // ───────────────────────────────────────────────

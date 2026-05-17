@@ -29,12 +29,6 @@ namespace CSimulator
         public int Quantity;
     }
 
-    internal class PendingMarketExit
-    {
-        public string FromEntry;
-        public MarketPosition Direction;
-        public string ExitSignalName;
-    }
 
     // ───────────────────────────────────────────────
     // Order Engine — simulates NinjaTrader fill logic
@@ -51,9 +45,6 @@ namespace CSimulator
 
         // Entries submitted this tick, to be filled on the NEXT tick
         private readonly List<PendingEntry> _pendingEntries = new List<PendingEntry>();
-
-        // Market exits queued for immediate processing
-        private readonly List<PendingMarketExit> _pendingMarketExits = new List<PendingMarketExit>();
 
         // Preset stops/targets (set before entry is filled)
         private readonly Dictionary<string, double> _presetStops = new Dictionary<string, double>();
