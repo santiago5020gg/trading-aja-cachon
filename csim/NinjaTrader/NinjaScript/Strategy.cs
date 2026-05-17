@@ -64,6 +64,13 @@ namespace NinjaTrader.NinjaScript.Strategies
         public bool IsFirstTickOfBar { get; set; }
         public double TickSize { get; set; } = 0.25;
 
+        // ── Bid/Ask (for fill simulation) ──
+        public double CurrentBid { get; set; }
+        public double CurrentAsk { get; set; }
+
+        protected double GetCurrentAsk() => CurrentAsk;
+        protected double GetCurrentBid() => CurrentBid;
+
         // ── Position / Account / Instrument ──
         public Position Position { get; set; } = new Position();
         public Account Account { get; set; } = new Account();

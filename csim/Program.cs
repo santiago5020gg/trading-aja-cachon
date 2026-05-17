@@ -35,6 +35,8 @@ namespace CSimulator
     {
         public DateTime Time;
         public double Last;
+        public double Bid;
+        public double Ask;
         public long Volume;
     }
 
@@ -388,7 +390,11 @@ namespace CSimulator
 
                     tickCount++;
 
-                    // Step 1: Fill pending entries from previous tick
+                    // Update bid/ask before fills (entries fill at next tick's Ask/Bid)
+                    strategy.CurrentBid = tick.Bid;
+                    strategy.CurrentAsk = tick.Ask;
+
+                    // Step 1: Fill pending entries from previous tick at current Ask/Bid
                     engine.FillPendingEntries(tick.Last, tick.Time);
 
                     // Step 2: Determine bar slot (2-minute periods)
@@ -466,6 +472,12 @@ namespace CSimulator
             if (!double.TryParse(fields[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double last))
                 return false;
 
+            // Parse bid/ask
+            if (!double.TryParse(fields[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double bid))
+                return false;
+            if (!double.TryParse(fields[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double ask))
+                return false;
+
             // Parse volume
             if (!long.TryParse(fields[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out long volume))
                 return false;
@@ -508,6 +520,8 @@ namespace CSimulator
             }
 
             tick.Last = last;
+            tick.Bid = bid;
+            tick.Ask = ask;
             tick.Volume = volume;
             return true;
         }
