@@ -22,14 +22,6 @@ namespace CSimulator
         public double TargetPrice;
     }
 
-    internal class PendingEntry
-    {
-        public string SignalName;
-        public MarketPosition Direction;
-        public int Quantity;
-    }
-
-
     // ───────────────────────────────────────────────
     // Order Engine — simulates NinjaTrader fill logic
     // ───────────────────────────────────────────────
@@ -38,13 +30,9 @@ namespace CSimulator
     {
         private readonly Strategy _strategy;
         private readonly double _tickSize;
-        private readonly int _slippage;
 
         // Active entries that have been filled and are still open
         private readonly List<EntryState> _activeEntries = new List<EntryState>();
-
-        // Entries submitted this tick, to be filled on the NEXT tick
-        private readonly List<PendingEntry> _pendingEntries = new List<PendingEntry>();
 
         // Preset stops/targets (set before entry is filled)
         private readonly Dictionary<string, double> _presetStops = new Dictionary<string, double>();
@@ -53,11 +41,10 @@ namespace CSimulator
 
         private int _executionCounter;
 
-        internal OrderEngine(Strategy strategy, double tickSize, int slippage)
+        internal OrderEngine(Strategy strategy, double tickSize)
         {
             _strategy = strategy;
             _tickSize = tickSize;
-            _slippage = slippage;
         }
 
         // ───────────────────────────────────────────
@@ -66,22 +53,72 @@ namespace CSimulator
 
         public void SubmitEntry(string signalName, MarketPosition direction, int quantity)
         {
-            _pendingEntries.Add(new PendingEntry
+            // Fill immediately at current price (NinjaTrader Playback fills at ask/bid instantly)
+            double fillPrice = _strategy.Close[0];
+            DateTime time = _strategy.Time[0];
+
+            var entry = new EntryState
             {
                 SignalName = signalName,
                 Direction = direction,
-                Quantity = quantity
-            });
+                Quantity = quantity,
+                Filled = true,
+                FillPrice = fillPrice,
+                StopPrice = 0,
+                TargetPrice = 0
+            };
 
-            // Add a working order to Account.Orders (mimics NinjaTrader)
+            // Apply preset stop if exists
+            if (_presetStops.TryGetValue(signalName, out double presetStop))
+            {
+                entry.StopPrice = presetStop;
+                _presetStops.Remove(signalName);
+            }
+
+            // Apply preset target if exists
+            if (_presetTargets.TryGetValue(signalName, out var presetTarget))
+            {
+                entry.TargetPrice = ComputeTargetPrice(fillPrice, direction,
+                    presetTarget.value, presetTarget.mode);
+                _presetTargets.Remove(signalName);
+            }
+
+            _activeEntries.Add(entry);
+
+            // Add filled order to Account.Orders
             var order = new Order
             {
                 Name = signalName,
                 SignalName = signalName,
                 Quantity = quantity,
-                OrderState = OrderState.Accepted
+                OrderState = OrderState.Filled,
+                Price = fillPrice
             };
             _strategy.Account.Orders.Add(order);
+
+            // Update position
+            UpdatePosition();
+
+            // Fire OnExecutionUpdate
+            var execution = new Execution
+            {
+                Order = order,
+                Price = fillPrice,
+                Quantity = quantity,
+                MarketPosition = _strategy.Position.MarketPosition,
+                ExecutionId = GenerateExecutionId(),
+                OrderId = GenerateExecutionId()
+            };
+
+            _strategy.TriggerOnExecutionUpdate(
+                execution,
+                execution.ExecutionId,
+                fillPrice,
+                quantity,
+                _strategy.Position.MarketPosition,
+                execution.OrderId,
+                time
+            );
         }
 
         public void SubmitMarketExit(string fromEntry, MarketPosition direction, string exitSignalName)
@@ -160,9 +197,6 @@ namespace CSimulator
         {
             if (order == null) return;
 
-            // Remove from pending entries
-            _pendingEntries.RemoveAll(p => p.SignalName == order.Name);
-
             // Remove from Account.Orders
             order.OrderState = OrderState.Cancelled;
             _strategy.Account.Orders.Remove(order);
@@ -173,93 +207,10 @@ namespace CSimulator
         // ───────────────────────────────────────────
 
         /// <summary>
-        /// Fill entries submitted on the PREVIOUS tick. Called at the start of each tick.
+        /// No-op: entries now fill immediately in SubmitEntry.
         /// </summary>
         public void FillPendingEntries(double price, DateTime time)
         {
-            if (_pendingEntries.Count == 0) return;
-
-            // Snapshot and clear so new entries submitted during OnExecutionUpdate
-            // go into the next tick's batch
-            var toFill = new List<PendingEntry>(_pendingEntries);
-            _pendingEntries.Clear();
-
-            foreach (var pending in toFill)
-            {
-                double fillPrice;
-                if (pending.Direction == MarketPosition.Long)
-                    fillPrice = price + (_slippage * _tickSize);
-                else
-                    fillPrice = price - (_slippage * _tickSize);
-
-                var entry = new EntryState
-                {
-                    SignalName = pending.SignalName,
-                    Direction = pending.Direction,
-                    Quantity = pending.Quantity,
-                    Filled = true,
-                    FillPrice = fillPrice,
-                    StopPrice = 0,
-                    TargetPrice = 0
-                };
-
-                // Apply preset stop if exists
-                if (_presetStops.TryGetValue(pending.SignalName, out double presetStop))
-                {
-                    entry.StopPrice = presetStop;
-                    _presetStops.Remove(pending.SignalName);
-                }
-
-                // Apply preset target if exists
-                if (_presetTargets.TryGetValue(pending.SignalName, out var presetTarget))
-                {
-                    entry.TargetPrice = ComputeTargetPrice(fillPrice, pending.Direction,
-                        presetTarget.value, presetTarget.mode);
-                    _presetTargets.Remove(pending.SignalName);
-                }
-
-                _activeEntries.Add(entry);
-
-                // Update the order in Account.Orders to Filled
-                var accountOrder = _strategy.Account.Orders
-                    .FirstOrDefault(o => o.Name == pending.SignalName && o.OrderState == OrderState.Accepted);
-                if (accountOrder != null)
-                {
-                    accountOrder.OrderState = OrderState.Filled;
-                    accountOrder.Price = fillPrice;
-                }
-
-                // Update position
-                UpdatePosition();
-
-                // Fire OnExecutionUpdate
-                var execution = new Execution
-                {
-                    Order = new Order
-                    {
-                        Name = pending.SignalName,
-                        SignalName = pending.SignalName,
-                        OrderState = OrderState.Filled,
-                        Quantity = pending.Quantity,
-                        Price = fillPrice
-                    },
-                    Price = fillPrice,
-                    Quantity = pending.Quantity,
-                    MarketPosition = _strategy.Position.MarketPosition,
-                    ExecutionId = GenerateExecutionId(),
-                    OrderId = GenerateExecutionId()
-                };
-
-                _strategy.TriggerOnExecutionUpdate(
-                    execution,
-                    execution.ExecutionId,
-                    fillPrice,
-                    pending.Quantity,
-                    _strategy.Position.MarketPosition,
-                    execution.OrderId,
-                    time
-                );
-            }
         }
 
         /// <summary>

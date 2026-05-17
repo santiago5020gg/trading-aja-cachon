@@ -74,7 +74,7 @@ namespace CSimulator
 
             // Create strategy and engine
             var strategy = new MNQ10minV2();
-            var engine = new OrderEngine(strategy, 0.25, 1);
+            var engine = new OrderEngine(strategy, 0.25);
             strategy._orderEngine = engine;
 
             // Initialize (triggers OnStateChange: SetDefaults → Configure → DataLoaded)
@@ -228,7 +228,9 @@ namespace CSimulator
             string filters = $"cs{config.ColchonStop}-cbe{config.ColchonBreakeven}-bk{config.BreakevenPct}" +
                              $"-mt{config.MaxTrades}-pmd{config.PerdidaMaxDiaria:0}-{config.ModoTP}";
 
-            return $"{monthPart}-{filters}";
+            string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmm");
+
+            return $"{timestamp}_{monthPart}-{filters}";
         }
 
         // ───────────────────────────────────────────────
