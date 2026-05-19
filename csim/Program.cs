@@ -25,6 +25,8 @@ namespace CSimulator
         public string OutputDir = null;
         public bool NoTelemetry = false;
         public string TickFile = null;
+        public string TrailTP1 = null; // "act:stp,act:stp,..." overrides trailing TP1
+        public string TrailTP2 = null; // "act:stp,act:stp,..." overrides trailing TP2
     }
 
     // ───────────────────────────────────────────────
@@ -71,6 +73,8 @@ namespace CSimulator
             Console.WriteLine($"  Max Trades/Dia: {config.MaxTrades} | PerdidaMaxDiaria: ${config.PerdidaMaxDiaria}");
             Console.WriteLine($"  Modo TP: {(config.ModoTP == "1a1" ? "Solo1a1" : "Con1a2")}");
             Console.WriteLine($"  Hora Cierre: {config.HoraCierre} ET");
+            Console.WriteLine($"  Trail TP1: {config.TrailTP1 ?? "(default 75:45,85:60,95:80,99:95)"}");
+            Console.WriteLine($"  Trail TP2: {config.TrailTP2 ?? "(default 50:18,70:50,85:60,90:70,95:84,98:94)"}");
             Console.WriteLine($"  Archivo: {config.TickFile}");
             Console.WriteLine();
 
@@ -113,6 +117,14 @@ namespace CSimulator
             // Set ModoLog to Month
             var logProp = typeof(MNQ10minV2).GetProperty("ModoLog");
             logProp.SetValue(strategy, Enum.Parse(logProp.PropertyType, "Month"));
+
+            // Override trailing TP1 if provided
+            if (config.TrailTP1 != null)
+                ApplyTrailing(strategy, config.TrailTP1, "TP1", 4);
+
+            // Override trailing TP2 if provided
+            if (config.TrailTP2 != null)
+                ApplyTrailing(strategy, config.TrailTP2, "TP2", 6);
 
             // Build output directory: csim/output/<months>-<filters>
             string outputDir = config.OutputDir;
@@ -162,6 +174,30 @@ namespace CSimulator
             string dailyPath = Path.Combine(outputDir, "mnq10minv2_daily_log.csv");
             if (File.Exists(dailyPath))
                 PrintDailySummary(dailyPath);
+        }
+
+        // ───────────────────────────────────────────────
+        // Apply trailing escalones from "act:stp,act:stp,..." string
+        // ───────────────────────────────────────────────
+
+        static void ApplyTrailing(MNQ10minV2 strategy, string spec, string prefix, int maxEscalones)
+        {
+            // spec = "75:45,85:60,95:80,99:95"
+            string[] pairs = spec.Split(',');
+            int count = Math.Min(pairs.Length, maxEscalones);
+
+            // Set CantTrailTP1 or CantTrailTP2
+            typeof(MNQ10minV2).GetProperty($"CantTrail{prefix}").SetValue(strategy, count);
+
+            for (int i = 0; i < count; i++)
+            {
+                string[] parts = pairs[i].Split(':');
+                int act = int.Parse(parts[0]);
+                int stp = int.Parse(parts[1]);
+
+                typeof(MNQ10minV2).GetProperty($"{prefix}Act{i + 1}").SetValue(strategy, act);
+                typeof(MNQ10minV2).GetProperty($"{prefix}Stp{i + 1}").SetValue(strategy, stp);
+            }
         }
 
         // ───────────────────────────────────────────────
@@ -565,6 +601,12 @@ namespace CSimulator
                     case "--no-telemetry":
                         config.NoTelemetry = true;
                         break;
+                    case "--trail-tp1":
+                        if (++i < args.Length) config.TrailTP1 = args[i];
+                        break;
+                    case "--trail-tp2":
+                        if (++i < args.Length) config.TrailTP2 = args[i];
+                        break;
                     default:
                         // Positional argument = tick file
                         if (!args[i].StartsWith("--"))
@@ -594,6 +636,8 @@ namespace CSimulator
             Console.WriteLine("  --cierre <HH:mm>      HoraCierre (default: 15:50)");
             Console.WriteLine("  --output-dir <path>   Override CSV output directory");
             Console.WriteLine("  --no-telemetry        Disable telemetry JSON writes");
+            Console.WriteLine("  --trail-tp1 <spec>    Trailing TP1 escalones act:stp,... (default: 75:45,85:60,95:80,99:95)");
+            Console.WriteLine("  --trail-tp2 <spec>    Trailing TP2 escalones act:stp,... (default: 50:18,70:50,85:60,90:70,95:84,98:94)");
         }
     }
 }
