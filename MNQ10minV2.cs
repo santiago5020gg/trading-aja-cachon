@@ -715,7 +715,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             int midBar = barsBack / 2;
             Draw.Text(this, "RangoPts" + nyNow.ToString("yyyyMMdd"),
                 string.Format("{0:F0} pts", rangoPuntos),
-                midBar, midPrice, Brushes.DodgerBlue);
+                midBar, midPrice, Brushes.White);
 
             ColocarOrdenes();
 
