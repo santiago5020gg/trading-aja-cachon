@@ -8,3 +8,7 @@ bot/history/
 csim/bin/
 csim/obj/
 csim/output/
+csim.Tests/bin/
+csim.Tests/obj/
+csim.Tests/TestResults/
+csim.Tests/CoverageReport/
