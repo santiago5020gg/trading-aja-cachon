@@ -172,6 +172,14 @@ namespace NinjaTrader.NinjaScript.Strategies
             OnStateChange();
         }
 
+        public void Reconfigure()
+        {
+            State = State.Configure;
+            OnStateChange();
+            State = State.DataLoaded;
+            OnStateChange();
+        }
+
         public void TriggerOnBarUpdate()
         {
             OnBarUpdate();
