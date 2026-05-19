@@ -201,7 +201,7 @@ namespace CSimulator.Tests
 
         private StrategyTestHarness SetupWithRango(double mid, double high, double low)
         {
-            var h = new StrategyTestHarness();
+            var h = new StrategyTestHarness(s => { s.ModoLog = MNQ10minV2.LogMode.Off; s.PerdidaMaxDiaria = 1000; });
             BuildRango(h, mid, high, low);
             var t = new DateTime(2026, 1, 15, 9, 41, 0);
             h.NewBar(t, mid, mid + 5, mid - 5, mid);

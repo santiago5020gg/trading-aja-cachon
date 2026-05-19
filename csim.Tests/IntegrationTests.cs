@@ -14,7 +14,7 @@ namespace CSimulator.Tests
             var h = new StrategyTestHarness(s =>
             {
                 s.ModoLog = MNQ10minV2.LogMode.Off;
-                s.PerdidaMaxDiaria = 400;
+                s.PerdidaMaxDiaria = 1000;
                 s.MaxTrades = 4;
             });
 
@@ -54,7 +54,7 @@ namespace CSimulator.Tests
             var h = new StrategyTestHarness(s =>
             {
                 s.ModoLog = MNQ10minV2.LogMode.Off;
-                s.PerdidaMaxDiaria = 400;
+                s.PerdidaMaxDiaria = 1000;
                 s.MaxTrades = 4;
             });
 
@@ -88,7 +88,7 @@ namespace CSimulator.Tests
             });
 
             // Large range makes it impossible
-            BuildRango(h, 20000, 20050, 19950); // 100pt range -> riesgo=(100+5)*2=210 > 50
+            BuildRango(h, 20000, 20050, 19950); // 100pt range -> riesgo=(100+5)*5=525 > 50
 
             h.NewBar(new DateTime(2026, 1, 15, 9, 41, 0), 20000, 20005, 19995, 20000);
 
@@ -101,7 +101,7 @@ namespace CSimulator.Tests
         [Fact]
         public void FullDay_MultipleBarsDuringRange_UsesMaxHighMinLow()
         {
-            var h = new StrategyTestHarness(s => s.ModoLog = MNQ10minV2.LogMode.Off);
+            var h = new StrategyTestHarness(s => { s.ModoLog = MNQ10minV2.LogMode.Off; s.PerdidaMaxDiaria = 1000; });
 
             // Progressive range expansion
             h.NewBar(new DateTime(2026, 1, 15, 9, 32, 0), 20000, 20005, 19998, 20002);
@@ -126,6 +126,7 @@ namespace CSimulator.Tests
             {
                 s.ModoOperacion = MNQ10minV2.OperationMode.Visualizar;
                 s.ModoLog = MNQ10minV2.LogMode.Off;
+                s.PerdidaMaxDiaria = 1000;
             });
 
             BuildRango(h, 20000, 20020, 19980);
@@ -148,7 +149,7 @@ namespace CSimulator.Tests
         [Fact]
         public void DayChange_ResetsCompletely()
         {
-            var h = new StrategyTestHarness(s => s.ModoLog = MNQ10minV2.LogMode.Off);
+            var h = new StrategyTestHarness(s => { s.ModoLog = MNQ10minV2.LogMode.Off; s.PerdidaMaxDiaria = 1000; });
 
             // Day 1
             BuildRango(h, 20000, 20020, 19980);

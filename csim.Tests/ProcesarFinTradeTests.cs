@@ -188,6 +188,7 @@ namespace CSimulator.Tests
             var h = new StrategyTestHarness(s =>
             {
                 s.ModoLog = MNQ10minV2.LogMode.Off;
+                s.PerdidaMaxDiaria = 1000;
                 s.MaxTrades = maxTrades;
             });
             double mid = 20000, high = 20020, low = 19980;

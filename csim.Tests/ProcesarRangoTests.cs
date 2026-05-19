@@ -53,10 +53,10 @@ namespace CSimulator.Tests
         [Fact]
         public void PositionSizing_CalculatesContractsCorrectly()
         {
-            // rangoPuntos = 40 (20020-19980), ColchonStop=5, riesgo1Micro = 45*2 = 90
-            // PerdidaMaxDiaria=400, MaxTrades=2 -> presupuestoIdeal = 200
-            // 200 >= 90 -> contratos = floor(200/90) = 2, tradesPermitidos = 2
-            var h = new StrategyTestHarness();
+            // rangoPuntos = 40 (20020-19980), ColchonStop=5, riesgo1Micro = 45*5 = 225
+            // PerdidaMaxDiaria=1000, MaxTrades=2 -> presupuestoIdeal = 500
+            // 500 >= 225 -> contratos = floor(500/225) = 2, tradesPermitidos = 2
+            var h = new StrategyTestHarness(s => s.PerdidaMaxDiaria = 1000);
             BuildRango(h, 20000, 20020, 19980);
 
             var t = new DateTime(2026, 1, 15, 9, 41, 0);
@@ -73,7 +73,7 @@ namespace CSimulator.Tests
         [Fact]
         public void PositionSizing_FueraPresupuesto_EndsDayWhenRiskTooHigh()
         {
-            // rango = 200 pts -> riesgo1Micro = (200+5)*2 = 410 > PerdidaMaxDiaria=400
+            // rango = 200 pts -> riesgo1Micro = (200+5)*5 = 1025 > PerdidaMaxDiaria=400
             var h = new StrategyTestHarness();
             h.Strategy.PerdidaMaxDiaria = 400;
 
@@ -111,7 +111,7 @@ namespace CSimulator.Tests
         [Fact]
         public void PositionSizing_Con1a2_SplitsContracts()
         {
-            var h = new StrategyTestHarness(s => s.ModoTP = MNQ10minV2.TPMode.Con1a2);
+            var h = new StrategyTestHarness(s => { s.ModoTP = MNQ10minV2.TPMode.Con1a2; s.PerdidaMaxDiaria = 1000; });
             BuildRango(h, 20000, 20020, 19980);
 
             var t = new DateTime(2026, 1, 15, 9, 41, 0);

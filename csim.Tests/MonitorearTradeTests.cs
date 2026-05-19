@@ -279,15 +279,14 @@ namespace CSimulator.Tests
             double rangoHigh = entryPrice;
             double rangoLow = entryPrice - rangoPuntos;
             double mid = (rangoHigh + rangoLow) / 2.0;
-            // riesgo1Micro = stopDist * 2 = 90
+            // riesgo1Micro = stopDist * 5 = 225
             // Need presupuestoIdeal < riesgo BUT riesgo <= PerdidaMaxDiaria
-            // presupuestoIdeal = PerdidaMaxDiaria / MaxTrades
-            // With PerdidaMaxDiaria=150, MaxTrades=2: presup=75 < 90, but 90<=150 -> contratos=1, qtyTP1=0, qtyTP2=1
+            // With PerdidaMaxDiaria=400, MaxTrades=2: presup=200 < 225, but 225<=400 -> contratos=1, qtyTP1=0, qtyTP2=1
 
             var h = new StrategyTestHarness(s =>
             {
                 s.ModoLog = MNQ10minV2.LogMode.Off;
-                s.PerdidaMaxDiaria = 150;
+                s.PerdidaMaxDiaria = 400;
                 s.MaxTrades = 2;
             });
             BuildRango(h, mid, rangoHigh, rangoLow);
@@ -313,6 +312,7 @@ namespace CSimulator.Tests
             var h = new StrategyTestHarness(s =>
             {
                 s.ModoLog = MNQ10minV2.LogMode.Off;
+                s.PerdidaMaxDiaria = 1000;
                 configure?.Invoke(s);
             });
             BuildRango(h, mid, rangoHigh, rangoLow);
@@ -342,6 +342,7 @@ namespace CSimulator.Tests
             var h = new StrategyTestHarness(s =>
             {
                 s.ModoLog = MNQ10minV2.LogMode.Off;
+                s.PerdidaMaxDiaria = 1000;
                 configure?.Invoke(s);
             });
             BuildRango(h, mid, rangoHigh, rangoLow);

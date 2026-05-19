@@ -52,6 +52,18 @@ namespace NinjaTrader.NinjaScript.Strategies
         public string HoraCierre { get; set; }
 
         [NinjaScriptProperty]
+        [Display(Name = "Operar Asia (18:02-02:00 ET)", GroupName = "2. Sesion", Order = 2)]
+        public bool OperarAsia { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Operar Europa (02:02-09:30 ET)", GroupName = "2. Sesion", Order = 3)]
+        public bool OperarEuropa { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Operar America (09:32-HoraCierre ET)", GroupName = "2. Sesion", Order = 4)]
+        public bool OperarAmerica { get; set; }
+
+        [NinjaScriptProperty]
         [Display(Name = "Modo Log", GroupName = "3. Logging", Order = 1)]
         public LogMode ModoLog { get; set; }
 
@@ -153,7 +165,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             DiaTerminado
         }
 
+        private enum Sesion { Asia, Europa, America, Ninguna }
+
         private BotState estado;
+        private Sesion sesionActual;
         private int tradeDirection;       // 1=long, -1=short, 0=flat
         private double entryPrice;
         private double stopDistance;       // in points
@@ -197,6 +212,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double riesgo1Micro;
         private int tradesPermitidosHoy;
         private int contratosCalculados;
+        private bool dayHardStop;
 
         private DateTime lastResetDate;
         private TimeZoneInfo easternZone;
@@ -258,6 +274,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                 ModoTP = TPMode.Con1a2;
                 ModoOperacion = OperationMode.Operar;
                 HoraCierre = "15:50";
+                OperarAsia = false;
+                OperarEuropa = false;
+                OperarAmerica = true;
                 ModoLog = LogMode.Month;
 
                 // Trailing TP1 defaults (activacion% -> stop%)
@@ -320,9 +339,11 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (CurrentBar < BarsRequiredToTrade) return;
 
             DateTime nyNow = TimeZoneInfo.ConvertTime(Time[0], easternZone);
-            DateTime nyDate = nyNow.Date;
 
-            if (nyDate != lastResetDate)
+            // Trading day starts at 18:00 ET (Asia open) and ends at 15:50 ET next calendar day
+            DateTime tradingDay = nyNow.Hour >= 18 ? nyNow.Date : nyNow.Date.AddDays(-1);
+
+            if (tradingDay != lastResetDate)
             {
                 if (lastResetDate != DateTime.MinValue)
                 {
@@ -331,23 +352,77 @@ namespace NinjaTrader.NinjaScript.Strategies
                         FlattenAll("CierreDia");
                 }
                 ResetDaily();
-                lastResetDate = nyDate;
+                lastResetDate = tradingDay;
             }
 
             bool firstTick = IsFirstTickOfBar;
 
             if (firstTick) LogBarCsv(nyNow);
 
-            if (estado == BotState.DiaTerminado)
+            // Determine which session we're in and if it's enabled
+            Sesion sesionParaHora = GetSesionParaHora(nyNow);
+            bool sesionHabilitada = IsSesionHabilitada(sesionParaHora);
+
+            // Session transition: if we moved to a new session, reset session state
+            if (sesionParaHora != sesionActual && sesionParaHora != Sesion.Ninguna)
             {
-                lastDecision = "DIA_TERMINADO";
-                if (firstTick) WriteTelemetry(nyNow);
-                return;
+                if (sesionActual != Sesion.Ninguna && estado != BotState.DiaTerminado)
+                {
+                    if (ModoOperacion == OperationMode.Visualizar && vizTradeActive)
+                        VizSalir("CierreSesion");
+                    else if (Position.MarketPosition != MarketPosition.Flat)
+                        FlattenAll("CierreSesion");
+                }
+                sesionActual = sesionParaHora;
+                if (sesionHabilitada && estado != BotState.DiaTerminado)
+                    ResetSession();
+                else if (!sesionHabilitada)
+                    estado = BotState.DiaTerminado;
             }
 
-            bool beforeOpen = nyNow.Hour < 9 || (nyNow.Hour == 9 && nyNow.Minute < 30);
-            bool afterClose = nyNow.Hour > horaCierreH || (nyNow.Hour == horaCierreH && nyNow.Minute >= horaCierreM);
-            bool fueraDeSesion = beforeOpen || afterClose;
+            if (estado == BotState.DiaTerminado)
+            {
+                if (firstTick)
+                {
+                    CancelAllPendingOrders();
+                    LimpiarDibujosFueraSesion();
+                }
+                // If day was hard-stopped (drawdown, max trades global), don't revive
+                if (dayHardStop)
+                {
+                    lastDecision = "DIA_TERMINADO_HARD_STOP";
+                    if (firstTick) WriteTelemetry(nyNow);
+                    return;
+                }
+                // Check if a new enabled session starts — revive with remaining budget
+                if (sesionParaHora != Sesion.Ninguna && sesionHabilitada && IsSessionStart(nyNow, sesionParaHora))
+                {
+                    double presupuestoRestante = dailyPnL < 0 ? PerdidaMaxDiaria - Math.Abs(dailyPnL) : PerdidaMaxDiaria;
+                    if (presupuestoRestante > 0 && tradesToday < MaxTrades)
+                    {
+                        ResetSession();
+                    }
+                    else
+                    {
+                        dayHardStop = true;
+                        lastDecision = "DIA_TERMINADO_SIN_PRESUPUESTO";
+                        if (firstTick) WriteTelemetry(nyNow);
+                        return;
+                    }
+                }
+                else
+                {
+                    lastDecision = "DIA_TERMINADO";
+                    if (firstTick) WriteTelemetry(nyNow);
+                    return;
+                }
+            }
+
+            // Check if we're outside the active session's operating window
+            bool sesionActualHabilitada = IsSesionHabilitada(sesionActual);
+            bool afterSessionClose = IsAfterSessionClose(nyNow, sesionActual);
+            bool beforeSessionOpen = IsBeforeSessionOpen(nyNow, sesionActual);
+            bool fueraDeSesion = !sesionActualHabilitada || beforeSessionOpen || afterSessionClose;
 
             if (fueraDeSesion && firstTick)
             {
@@ -355,7 +430,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 LimpiarDibujosFueraSesion();
             }
 
-            if (afterClose)
+            if (afterSessionClose && sesionActualHabilitada)
             {
                 if (ModoOperacion == OperationMode.Visualizar && vizTradeActive)
                     VizSalir("CierreForzado");
@@ -367,11 +442,16 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return;
             }
 
+            if (fueraDeSesion)
+            {
+                if (firstTick) WriteTelemetry(nyNow);
+                return;
+            }
+
             if (tradeEnded)
             {
                 ProcesarFinTrade();
             }
-
 
             switch (estado)
             {
@@ -412,7 +492,13 @@ namespace NinjaTrader.NinjaScript.Strategies
                 takeProfitsHoy++;
                 tradeEndedByTakeProfit = false;
 
-                if (takeProfitsHoy >= maxTakeProfits)
+                if (tradesToday >= MaxTrades)
+                {
+                    estado = BotState.DiaTerminado;
+                    dayHardStop = true;
+                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                }
+                else if (takeProfitsHoy >= maxTakeProfits)
                 {
                     estado = BotState.DiaTerminado;
                     lastDecision = string.Format("DIA_TERMINADO_MAX_TP ({0})", takeProfitsHoy);
@@ -420,7 +506,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 else if (tradesToday >= tradesPermitidosHoy)
                 {
                     estado = BotState.DiaTerminado;
-                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                    lastDecision = "DIA_TERMINADO_TRADES_SESION";
                 }
                 else
                 {
@@ -437,7 +523,13 @@ namespace NinjaTrader.NinjaScript.Strategies
                 stopsPuros++;
                 tradeEndedByTakeProfit = false;
 
-                if (stopsPuros >= maxStopsPuros)
+                if (tradesToday >= MaxTrades)
+                {
+                    estado = BotState.DiaTerminado;
+                    dayHardStop = true;
+                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                }
+                else if (stopsPuros >= maxStopsPuros)
                 {
                     estado = BotState.DiaTerminado;
                     lastDecision = string.Format("DIA_TERMINADO_MAX_STOPS ({0})", stopsPuros);
@@ -445,7 +537,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 else if (tradesToday >= tradesPermitidosHoy)
                 {
                     estado = BotState.DiaTerminado;
-                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                    lastDecision = "DIA_TERMINADO_TRADES_SESION";
                 }
                 else
                 {
@@ -469,7 +561,13 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (tradesPermitidosHoy > MaxTrades)
                     tradesPermitidosHoy = MaxTrades;
 
-                if (breakevensHoy >= maxBreakevens)
+                if (tradesToday >= MaxTrades)
+                {
+                    estado = BotState.DiaTerminado;
+                    dayHardStop = true;
+                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                }
+                else if (breakevensHoy >= maxBreakevens)
                 {
                     estado = BotState.DiaTerminado;
                     lastDecision = string.Format("DIA_TERMINADO_MAX_BE ({0})", breakevensHoy);
@@ -477,7 +575,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 else if (tradesToday >= tradesPermitidosHoy)
                 {
                     estado = BotState.DiaTerminado;
-                    lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                    lastDecision = "DIA_TERMINADO_TRADES_SESION";
                 }
                 else
                 {
@@ -497,8 +595,32 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ProcesarRango(DateTime nyNow)
         {
-            bool antesVentana = nyNow.Hour < 9 || (nyNow.Hour == 9 && nyNow.Minute < 32);
-            bool enVentana = (nyNow.Hour == 9 && nyNow.Minute >= 32 && nyNow.Minute <= 40);
+            int rangoInicioH, rangoInicioM, rangoFinH, rangoFinM;
+            GetRangoHorario(sesionActual, out rangoInicioH, out rangoInicioM, out rangoFinH, out rangoFinM);
+
+            double tNow = nyNow.Hour + nyNow.Minute / 60.0;
+            double tInicio = rangoInicioH + rangoInicioM / 60.0;
+            double tFin = rangoFinH + rangoFinM / 60.0;
+
+            bool antesVentana;
+            bool enVentana;
+
+            if (sesionActual == Sesion.Asia && tNow < 2.0)
+            {
+                // After midnight — we're past the range window
+                antesVentana = false;
+                enVentana = false;
+            }
+            else if (sesionActual == Sesion.Asia)
+            {
+                antesVentana = tNow < tInicio;
+                enVentana = tNow >= tInicio && tNow <= tFin;
+            }
+            else
+            {
+                antesVentana = tNow < tInicio;
+                enVentana = tNow >= tInicio && tNow <= tFin;
+            }
 
             if (antesVentana)
             {
@@ -527,27 +649,38 @@ namespace NinjaTrader.NinjaScript.Strategies
             stopDistance = rangoPuntos + ColchonStop;
 
             // --- Motor de Riesgo: Position Sizing Dinamico ---
-            riesgo1Micro = (rangoPuntos + ColchonStop) * 2.0;
-            double presupuestoIdeal = PerdidaMaxDiaria / MaxTrades;
+            riesgo1Micro = (rangoPuntos + ColchonStop) * Instrument.MasterInstrument.PointValue;
+            double presupuestoDisponible = dailyPnL < 0 ? PerdidaMaxDiaria - Math.Abs(dailyPnL) : PerdidaMaxDiaria;
+            int tradesRestantes = MaxTrades - tradesToday;
+            if (tradesRestantes <= 0)
+            {
+                estado = BotState.DiaTerminado;
+                dayHardStop = true;
+                lastDecision = "DIA_TERMINADO_MAX_TRADES";
+                return;
+            }
+            double presupuestoIdeal = presupuestoDisponible / tradesRestantes;
 
             if (presupuestoIdeal >= riesgo1Micro)
             {
                 contratosCalculados = (int)Math.Floor(presupuestoIdeal / riesgo1Micro);
-                tradesPermitidosHoy = MaxTrades;
+                tradesPermitidosHoy = tradesToday + tradesRestantes;
             }
-            else if (riesgo1Micro <= PerdidaMaxDiaria)
+            else if (riesgo1Micro <= presupuestoDisponible)
             {
                 contratosCalculados = 1;
-                tradesPermitidosHoy = (int)Math.Floor(PerdidaMaxDiaria / riesgo1Micro);
+                tradesPermitidosHoy = tradesToday + (int)Math.Floor(presupuestoDisponible / riesgo1Micro);
             }
             else
             {
                 contratosCalculados = 0;
-                tradesPermitidosHoy = 0;
+                tradesPermitidosHoy = tradesToday;
                 estado = BotState.DiaTerminado;
-                lastDecision = string.Format("FUERA_PRESUPUESTO riesgo=${0:F2} > max=${1:F2}", riesgo1Micro, PerdidaMaxDiaria);
+                lastDecision = string.Format("FUERA_PRESUPUESTO riesgo=${0:F2} > max=${1:F2}", riesgo1Micro, presupuestoDisponible);
                 return;
             }
+            if (tradesPermitidosHoy > MaxTrades)
+                tradesPermitidosHoy = MaxTrades;
 
             // --- Split TP1/TP2 segun contratos y modo ---
             if (ModoTP == TPMode.Solo1a1)
@@ -1013,9 +1146,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                     reason = "StopLoss";
 
                 if (tradeDirection == 1)
-                    pnl = (price - entryPrice) * 2.0 * quantity;
+                    pnl = (price - entryPrice) * Instrument.MasterInstrument.PointValue * quantity;
                 else if (tradeDirection == -1)
-                    pnl = (entryPrice - price) * 2.0 * quantity;
+                    pnl = (entryPrice - price) * Instrument.MasterInstrument.PointValue * quantity;
 
                 dailyPnL += pnl;
                 totalPnL += pnl;
@@ -1043,6 +1176,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     if (drawdownDesdeElPeak >= PerdidaMaxDiaria)
                     {
                         estado = BotState.DiaTerminado;
+                        dayHardStop = true;
                         lastDecision = string.Format("DIA_TERMINADO_DRAWDOWN peak=${0:F2} actual=${1:F2} dd=${2:F2}",
                             peakDailyPnL, dailyPnL, drawdownDesdeElPeak);
                     }
@@ -1054,8 +1188,131 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         #region Helpers
 
+        private void GetRangoHorario(Sesion s, out int inicioH, out int inicioM, out int finH, out int finM)
+        {
+            switch (s)
+            {
+                case Sesion.Asia:
+                    inicioH = 18; inicioM = 2; finH = 18; finM = 10;
+                    break;
+                case Sesion.Europa:
+                    inicioH = 2; inicioM = 2; finH = 2; finM = 10;
+                    break;
+                default: // America
+                    inicioH = 9; inicioM = 32; finH = 9; finM = 40;
+                    break;
+            }
+        }
+
+        private Sesion GetSesionParaHora(DateTime nyNow)
+        {
+            int h = nyNow.Hour;
+            int m = nyNow.Minute;
+            double t = h + m / 60.0;
+
+            // Asia: 18:00 - 02:00 (next day)
+            if (t >= 18.0) return Sesion.Asia;
+            // Europa: 02:00 - 09:30
+            if (t >= 2.0 && t < 9.5) return Sesion.Europa;
+            // America: 09:30 - 15:50 (horaCierre)
+            double cierre = horaCierreH + horaCierreM / 60.0;
+            if (t >= 9.5 && t < cierre) return Sesion.America;
+            // Between 00:00-02:00 is still Asia (wraps midnight)
+            if (t < 2.0) return Sesion.Asia;
+
+            return Sesion.Ninguna;
+        }
+
+        private bool IsSesionHabilitada(Sesion s)
+        {
+            switch (s)
+            {
+                case Sesion.Asia: return OperarAsia;
+                case Sesion.Europa: return OperarEuropa;
+                case Sesion.America: return OperarAmerica;
+                default: return false;
+            }
+        }
+
+        private bool IsSessionStart(DateTime nyNow, Sesion s)
+        {
+            int h = nyNow.Hour;
+            int m = nyNow.Minute;
+            switch (s)
+            {
+                case Sesion.Asia: return h == 18 && m >= 0 && m <= 2;
+                case Sesion.Europa: return h == 2 && m >= 0 && m <= 2;
+                case Sesion.America: return h == 9 && m >= 30 && m <= 32;
+                default: return false;
+            }
+        }
+
+        private bool IsBeforeSessionOpen(DateTime nyNow, Sesion s)
+        {
+            int h = nyNow.Hour;
+            int m = nyNow.Minute;
+            double t = h + m / 60.0;
+            switch (s)
+            {
+                case Sesion.Asia: return h == 18 && m < 0; // never true, Asia starts at 18:00
+                case Sesion.Europa: return t < 2.0;
+                case Sesion.America: return t < 9.5;
+                default: return true;
+            }
+        }
+
+        private bool IsAfterSessionClose(DateTime nyNow, Sesion s)
+        {
+            int h = nyNow.Hour;
+            int m = nyNow.Minute;
+            double t = h + m / 60.0;
+            switch (s)
+            {
+                case Sesion.Asia: return t >= 2.0 && t < 18.0;
+                case Sesion.Europa: return t >= 9.5;
+                case Sesion.America: return h > horaCierreH || (h == horaCierreH && m >= horaCierreM);
+                default: return true;
+            }
+        }
+
+        private void ResetSession()
+        {
+            cooldownActivo = false;
+            estado = BotState.EsperandoRango;
+            tradeDirection = 0;
+            rangoStartBar = 0;
+            rangoEndBar = 0;
+            breakevenHit = false;
+            tp1StopNivel = 0;
+            tp2StopNivel = -1;
+            tradeEnded = false;
+            tradeEndedByTakeProfit = false;
+            pendingFlip = false;
+            pendingFlipDirection = 0;
+            tradeCounted = false;
+            lastExitReason = "";
+            rangoHigh = double.MinValue;
+            rangoLow = double.MaxValue;
+            rangoPuntos = 0;
+            stopDistance = 0;
+            entryPrice = 0;
+            longUsado = false;
+            shortUsado = false;
+            reentryPriceInRange = false;
+            vizTradeActive = false;
+            vizTP1Active = false;
+            vizTP2Active = false;
+            vizStopTP1 = 0;
+            vizStopTP2 = 0;
+            riesgo1Micro = 0;
+            contratosCalculados = 0;
+            lastDecision = string.Format("NEW_SESSION_{0}", sesionActual);
+        }
+
         private void ResetDaily()
         {
+            sesionActual = Sesion.Ninguna;
+            dayHardStop = false;
             dailyPnL = 0;
             peakDailyPnL = 0;
             riesgo1Micro = 0;
@@ -1605,7 +1862,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                     rangoPuntos, pos, estado,
                     lastDecision.Replace("\"", "'"),
                     entryPrice, stopDistance,
-                    unrealizedPts, unrealizedPts * 2.0,
+                    unrealizedPts, unrealizedPts * Instrument.MasterInstrument.PointValue,
                     dailyPnL, totalPnL, tradesToday,
                     longUsado ? "true" : "false",
                     shortUsado ? "true" : "false",

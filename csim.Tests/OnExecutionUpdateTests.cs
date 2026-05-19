@@ -156,6 +156,7 @@ namespace CSimulator.Tests
             {
                 s.ModoLog = MNQ10minV2.LogMode.Off;
                 s.MaxTrades = maxTrades;
+                s.PerdidaMaxDiaria = 1000;
             });
             double mid = 20000, high = 20020, low = 19980;
             for (int min = 32; min <= 40; min++)

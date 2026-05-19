@@ -69,7 +69,7 @@ namespace CSimulator.Tests
         [Fact]
         public void AfterClose_FlattensPosition()
         {
-            var h = new StrategyTestHarness(s => s.ModoLog = MNQ10minV2.LogMode.Off);
+            var h = new StrategyTestHarness(s => { s.ModoLog = MNQ10minV2.LogMode.Off; s.PerdidaMaxDiaria = 1000; });
 
             // Build rango so qtyTP1/qtyTP2 get calculated
             BuildRango(h, 20000, 20020, 19980);

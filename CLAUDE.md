@@ -140,11 +140,6 @@ Estos archivos son una representacion completa de la grafica de 2 minutos. Cualq
   - `MNQ10minV2.cs` → `Strategies/`
   - `MCPBridge.cs` → `AddOns/`
   - `MCPBridgeIndicator.cs` → `Indicators/`
-- After modifying MNQ10minV2.cs:
-  1. `dotnet build csim` — verificar que compila contra los stubs
-  2. `dotnet run --project csim -- <tick_file>` — validar logica con simulacion real
-  3. Run `sync-cs-to-simulator` skill to update the Python tick simulator
-- Validate changes with: `python tick_simulator_mnq10minv2.py` on tick data and compare CSV output
 - MCP bridge runs via `node mcp-ninjatrader/index.js` (stdio transport, launched by Claude Code)
 - Test MCP connection: use `ping` tool, then `get_current_bar`
 

@@ -11,7 +11,7 @@ namespace CSimulator.Tests
         [Fact]
         public void DailyReset_FlattensOpenPositionFromPreviousDay()
         {
-            var h = new StrategyTestHarness(s => s.ModoLog = MNQ10minV2.LogMode.Off);
+            var h = new StrategyTestHarness(s => { s.ModoLog = MNQ10minV2.LogMode.Off; s.PerdidaMaxDiaria = 1000; });
             double mid = 20000, high = 20020, low = 19980;
             for (int min = 32; min <= 40; min++)
                 h.NewBar(new DateTime(2026, 1, 15, 9, min, 0), mid, high, low, mid);
@@ -35,8 +35,8 @@ namespace CSimulator.Tests
         [Fact]
         public void ProcesarFinTrade_TPExitWhenMaxTradesReached()
         {
-            // MaxTrades=2, tradesPermitidosHoy=2, after TP tradesToday=2 -> DiaTerminado
-            var h = SetupFullTrade(maxTrades: 2, perdidaMax: 400);
+            // MaxTrades=2, after TP maxTakeProfits=1 reached -> DiaTerminado
+            var h = SetupFullTrade(maxTrades: 2, perdidaMax: 1000);
 
             // First TP exit - maxTakeProfits=1, should end day
             var exitTime = new DateTime(2026, 1, 15, 9, 50, 0);
@@ -56,9 +56,8 @@ namespace CSimulator.Tests
         public void ProcesarFinTrade_StopExitWhenMaxTradesReached()
         {
             // After a stop, if tradesToday >= tradesPermitidosHoy, end day
-            // MaxTrades=2, tradesPermitidos could be 2, first trade uses 1,
-            // flip uses 1 more = tradesToday=2 >= 2 -> DiaTerminado
-            var h = SetupFullTrade(maxTrades: 4, perdidaMax: 400);
+            // MaxTrades=4, first stop flips, second stop -> maxStopsPuros=2 -> DiaTerminado
+            var h = SetupFullTrade(maxTrades: 4, perdidaMax: 1000);
 
             // Stop loss -> flip
             var exitTime = new DateTime(2026, 1, 15, 9, 45, 0);
@@ -92,7 +91,7 @@ namespace CSimulator.Tests
         public void ProcesarFinTrade_BreakevenExitRecalculates()
         {
             // MaxTrades=6 -> maxBreakevens=3
-            var h = SetupFullTrade(maxTrades: 6, perdidaMax: 600);
+            var h = SetupFullTrade(maxTrades: 6, perdidaMax: 1500);
 
             // Trigger breakeven
             var beTime = new DateTime(2026, 1, 15, 9, 44, 0);
@@ -126,7 +125,7 @@ namespace CSimulator.Tests
         {
             // If we're in OrdenesPuestas but position is already filled (not flat),
             // should transition to EnTrade
-            var h = new StrategyTestHarness(s => s.ModoLog = MNQ10minV2.LogMode.Off);
+            var h = new StrategyTestHarness(s => { s.ModoLog = MNQ10minV2.LogMode.Off; s.PerdidaMaxDiaria = 1000; });
             double mid = 20000, high = 20020, low = 19980;
             for (int min = 32; min <= 40; min++)
                 h.NewBar(new DateTime(2026, 1, 15, 9, min, 0), mid, high, low, mid);
@@ -149,13 +148,13 @@ namespace CSimulator.Tests
         [Fact]
         public void MonitorearOrdenes_FlipLong_InOperarMode()
         {
-            // PerdidaMaxDiaria=1200, MaxTrades=4: presup=300, rango=40, riesgo=90
-            // contratos=floor(300/90)=3, qtyTP1=2, qtyTP2=1
+            // PerdidaMaxDiaria=2000, MaxTrades=4: presup=500, rango=40, riesgo=225
+            // contratos=floor(500/225)=2, qtyTP1=1, qtyTP2=1
             var h = new StrategyTestHarness(s =>
             {
                 s.ModoLog = MNQ10minV2.LogMode.Off;
                 s.MaxTrades = 4;
-                s.PerdidaMaxDiaria = 1200;
+                s.PerdidaMaxDiaria = 2000;
             });
             double mid = 20000, high = 20020, low = 19980;
             for (int min = 32; min <= 40; min++)
@@ -164,14 +163,14 @@ namespace CSimulator.Tests
 
             // Short entry
             h.NewBar(new DateTime(2026, 1, 15, 9, 42, 0), 19980, 19981, 19975, 19979);
-            h.SetPosition(MarketPosition.Short, 3, 19980);
-            h.SimulateExecution("TP1Short", 19980, 2, MarketPosition.Short, new DateTime(2026, 1, 15, 9, 42, 0));
+            h.SetPosition(MarketPosition.Short, 2, 19980);
+            h.SimulateExecution("TP1Short", 19980, 1, MarketPosition.Short, new DateTime(2026, 1, 15, 9, 42, 0));
             h.SimulateExecution("TP2Short", 19980, 1, MarketPosition.Short, new DateTime(2026, 1, 15, 9, 42, 0));
 
             // Stop hit -> flip to long
             var exitTime = new DateTime(2026, 1, 15, 9, 45, 0);
             h.SetPosition(MarketPosition.Flat);
-            h.SimulateExecution("Stop loss", 20025, 3, MarketPosition.Flat, exitTime);
+            h.SimulateExecution("Stop loss", 20025, 2, MarketPosition.Flat, exitTime);
 
             h.OrderEngine.Reset();
             var processTime = new DateTime(2026, 1, 15, 9, 45, 1);
@@ -189,7 +188,7 @@ namespace CSimulator.Tests
             {
                 s.ModoLog = MNQ10minV2.LogMode.Off;
                 s.MaxTrades = 4;
-                s.PerdidaMaxDiaria = 1200;
+                s.PerdidaMaxDiaria = 2000;
             });
             double mid = 20000, high = 20020, low = 19980;
             for (int min = 32; min <= 40; min++)
@@ -198,14 +197,14 @@ namespace CSimulator.Tests
 
             // Long entry
             h.NewBar(new DateTime(2026, 1, 15, 9, 42, 0), 20020, 20025, 20019, 20021);
-            h.SetPosition(MarketPosition.Long, 3, 20020);
-            h.SimulateExecution("TP1Long", 20020, 2, MarketPosition.Long, new DateTime(2026, 1, 15, 9, 42, 0));
+            h.SetPosition(MarketPosition.Long, 2, 20020);
+            h.SimulateExecution("TP1Long", 20020, 1, MarketPosition.Long, new DateTime(2026, 1, 15, 9, 42, 0));
             h.SimulateExecution("TP2Long", 20020, 1, MarketPosition.Long, new DateTime(2026, 1, 15, 9, 42, 0));
 
             // Stop hit -> flip to short
             var exitTime = new DateTime(2026, 1, 15, 9, 45, 0);
             h.SetPosition(MarketPosition.Flat);
-            h.SimulateExecution("Stop loss", 19975, 3, MarketPosition.Flat, exitTime);
+            h.SimulateExecution("Stop loss", 19975, 2, MarketPosition.Flat, exitTime);
 
             h.OrderEngine.Reset();
             var processTime = new DateTime(2026, 1, 15, 9, 45, 1);
@@ -223,6 +222,7 @@ namespace CSimulator.Tests
             {
                 s.ModoLog = MNQ10minV2.LogMode.Off;
                 s.MaxTrades = 6;
+                s.PerdidaMaxDiaria = 1500;
             });
             double mid = 20000, high = 20020, low = 19980;
             for (int min = 32; min <= 40; min++)
@@ -291,7 +291,7 @@ namespace CSimulator.Tests
         [Fact]
         public void MonitorearTrade_OperarMode_PositionGoesFlat_SetsTradeEnded()
         {
-            var h = new StrategyTestHarness(s => s.ModoLog = MNQ10minV2.LogMode.Off);
+            var h = new StrategyTestHarness(s => { s.ModoLog = MNQ10minV2.LogMode.Off; s.PerdidaMaxDiaria = 1000; });
             double mid = 20000, high = 20020, low = 19980;
             for (int min = 32; min <= 40; min++)
                 h.NewBar(new DateTime(2026, 1, 15, 9, min, 0), mid, high, low, mid);
@@ -319,7 +319,7 @@ namespace CSimulator.Tests
             {
                 s.ModoOperacion = MNQ10minV2.OperationMode.Visualizar;
                 s.ModoLog = MNQ10minV2.LogMode.Off;
-                s.PerdidaMaxDiaria = 400;
+                s.PerdidaMaxDiaria = 1000;
                 s.MaxTrades = 4;
             });
             double mid = 20000, high = 20020, low = 19980;
@@ -344,7 +344,7 @@ namespace CSimulator.Tests
             {
                 s.ModoOperacion = MNQ10minV2.OperationMode.Visualizar;
                 s.ModoLog = MNQ10minV2.LogMode.Off;
-                s.PerdidaMaxDiaria = 400;
+                s.PerdidaMaxDiaria = 1000;
                 s.MaxTrades = 4;
             });
             double mid = 20000, high = 20020, low = 19980;
@@ -386,6 +386,7 @@ namespace CSimulator.Tests
                 s.ModoOperacion = MNQ10minV2.OperationMode.Visualizar;
                 s.ModoLog = MNQ10minV2.LogMode.Off;
                 s.MaxTrades = 4;
+                s.PerdidaMaxDiaria = 1000;
             });
             double mid = 20000, high = 20020, low = 19980;
             for (int min = 32; min <= 40; min++)
@@ -413,6 +414,7 @@ namespace CSimulator.Tests
                 s.ModoOperacion = MNQ10minV2.OperationMode.Visualizar;
                 s.ModoLog = MNQ10minV2.LogMode.Off;
                 s.MaxTrades = 4;
+                s.PerdidaMaxDiaria = 1000;
             });
             double mid = 20000, high = 20020, low = 19980;
             for (int min = 32; min <= 40; min++)
