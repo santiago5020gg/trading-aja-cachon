@@ -14,10 +14,21 @@ NinjaTrader 8 automated strategy for MNQ (Micro E-mini Nasdaq) futures. La estra
 - **MCPBridge.cs** — AddOn de NinjaTrader. Servidor HTTP (localhost:8500) que expone datos del chart al MCP bridge.
 - **MCPBridgeIndicator.cs** — Indicador de NinjaTrader que va en el chart y alimenta OHLCV + SMA20 + SMA200 + ATR + RSI al bridge.
 
+### C# harness simulator (csim/)
+
+Ejecuta `MNQ10minV2.cs` directamente contra tick exports sin NinjaTrader. El proyecto .NET 9 incluye mocks del framework NinjaScript (`Strategy`, `Order`, `Position`, etc.) y un `OrderEngine` que simula fills. Compila el archivo real via `<Compile Include="..\MNQ10minV2.cs" />` — sin modificarlo.
+
+- **Program.cs** — Entry point, CLI args, tick reader, simulation loop (2-min bars, OnEachTick)
+- **OrderEngine.cs** — Motor de fills: entradas market en next-tick Ask/Bid, stops/targets evaluados tick-a-tick
+- **NinjaTrader/** — Stubs: Strategy base class, Enums, Order, Execution, Position, Account, Draw (no-op), Brushes
+
+Salida en `csim/output/<timestamp>_<months>-<params>/` (trades_log, daily_log, bar_log CSVs).
+
 ### Python (simulacion y backtesting)
 
 - **tick_simulator_mnq10minv2.py** — Port exacto tick-a-tick del C# bot. Lee exports de ticks de NinjaTrader, procesa cada tick por la state machine, genera CSV logs identicos al bot real. Usar skill `sync-cs-to-simulator` para mantener sincronizado con el C#.
 - **backtest_mnq10minv2.py** — Backtester sobre barras de 2 min. Acepta 3 formatos: bar_log CSV del bot, export .txt barras NT, export .txt ticks NT. Genera resumen diario + detalle de trades.
+- **gen_report.py** — Genera reporte consolidado desde daily_log CSV (tabla mensual con PnL, trades, acumulado).
 
 ### MCP bridge
 
@@ -33,6 +44,18 @@ NinjaTrader 8 automated strategy for MNQ (Micro E-mini Nasdaq) futures. La estra
 
 ## Commands
 
+### C# harness simulator (preferred — runs real C# code)
+
+```bash
+# Build and run (desde raiz del repo)
+dotnet run --project csim -- "historicos test/MNQ 03-26-enero-febrero-marzo.Last.txt"
+dotnet run --project csim -- --colchon 10 --trades 3 --modo 1a2 "file.txt"
+dotnet run --project csim -- --perdida-max 500 --cierre 15:45 --no-telemetry "file.txt"
+
+# Build only (verificar compilacion tras editar MNQ10minV2.cs)
+dotnet build csim
+```
+
 ### Python simulator/backtester
 
 ```bash
@@ -44,6 +67,9 @@ python tick_simulator_mnq10minv2.py --colchon 10 --trades 3 --modo 1a2 "file.txt
 python backtest_mnq10minv2.py                                    # usa bot/history/mnq10minv2_bar_log.csv
 python backtest_mnq10minv2.py "historicos test/MNQ 06-26.Last.txt"
 python backtest_mnq10minv2.py --desde 2026-01-01 --hasta 2026-03-31 -v "file.txt"
+
+# Report from daily_log
+python gen_report.py csim/output/<run-dir>/mnq10minv2_daily_log.csv
 ```
 
 ### MCP bridge
@@ -61,6 +87,8 @@ node mcp-ninjatrader/index.js       # lanzado automaticamente por Claude Code vi
 - NinjaTrader may output JSON with Spanish locale (decimal commas instead of dots) — the MCP bridge sanitizes this in `fetchNT()`
 - The tick simulator must be an exact port of the C# logic — use the `sync-cs-to-simulator` skill after modifying MNQ10minV2.cs
 - MNQ10minV2 parameters are fully exposed as NinjaScript properties for NinjaTrader optimization (walk-forward)
+- csim compiles MNQ10minV2.cs unmodified — any new NinjaScript API used in the strategy must have a stub in `csim/NinjaTrader/`. If `dotnet build csim` fails after a strategy edit, add/update the relevant stub
+- CSV logs use Spanish locale (comma as decimal separator) — parsers must handle this (see `ParseDailyCsvLine` pattern in Program.cs and gen_report.py)
 
 ## Chart capture — graficas/
 
@@ -112,7 +140,10 @@ Estos archivos son una representacion completa de la grafica de 2 minutos. Cualq
   - `MNQ10minV2.cs` → `Strategies/`
   - `MCPBridge.cs` → `AddOns/`
   - `MCPBridgeIndicator.cs` → `Indicators/`
-- After modifying MNQ10minV2.cs, run `sync-cs-to-simulator` skill to update the Python tick simulator
+- After modifying MNQ10minV2.cs:
+  1. `dotnet build csim` — verificar que compila contra los stubs
+  2. `dotnet run --project csim -- <tick_file>` — validar logica con simulacion real
+  3. Run `sync-cs-to-simulator` skill to update the Python tick simulator
 - Validate changes with: `python tick_simulator_mnq10minv2.py` on tick data and compare CSV output
 - MCP bridge runs via `node mcp-ninjatrader/index.js` (stdio transport, launched by Claude Code)
 - Test MCP connection: use `ping` tool, then `get_current_bar`
