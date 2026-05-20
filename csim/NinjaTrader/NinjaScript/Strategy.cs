@@ -204,5 +204,12 @@ namespace NinjaTrader.NinjaScript.Strategies
         {
             OnExecutionUpdate(execution, executionId, price, quantity, marketPosition, orderId, time);
         }
+
+        public void TriggerOnOrderUpdate(Order order, double limitPrice, double stopPrice,
+            int quantity, int filled, double averageFillPrice,
+            OrderState orderState, DateTime time, ErrorCode error, string nativeError)
+        {
+            OnOrderUpdate(order, limitPrice, stopPrice, quantity, filled, averageFillPrice, orderState, time, error, nativeError);
+        }
     }
 }

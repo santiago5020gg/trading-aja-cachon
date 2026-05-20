@@ -100,5 +100,12 @@ namespace CSimulator.Tests
             Strategy.Position.Quantity = qty;
             Strategy.Position.AveragePrice = avgPrice;
         }
+
+        public void SimulateOrderRejected(string orderName, double stopPrice, DateTime time)
+        {
+            var order = new Order { Name = orderName, OrderState = OrderState.Rejected };
+            Strategy.TriggerOnOrderUpdate(order, 0, stopPrice, 1, 0, 0,
+                OrderState.Rejected, time, ErrorCode.OrderRejected, "Stop above market");
+        }
     }
 }
