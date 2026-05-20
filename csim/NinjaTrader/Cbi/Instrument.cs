@@ -2,7 +2,7 @@ namespace NinjaTrader.Cbi
 {
     public class MasterInstrument
     {
-        public double PointValue { get; set; } = 5.0;
+        public double PointValue { get; set; } = 2.0;
     }
 
     public class Instrument

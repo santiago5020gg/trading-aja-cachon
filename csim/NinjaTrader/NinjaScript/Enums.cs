@@ -88,4 +88,11 @@ namespace NinjaTrader.Cbi
         Cancelled,
         Rejected
     }
+
+    public enum ErrorCode
+    {
+        NoError,
+        OrderRejected,
+        UnableToSubmitOrder
+    }
 }

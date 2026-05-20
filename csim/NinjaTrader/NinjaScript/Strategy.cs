@@ -109,6 +109,9 @@ namespace NinjaTrader.NinjaScript.Strategies
         protected virtual void OnExecutionUpdate(Execution execution, string executionId,
             double price, int quantity, MarketPosition marketPosition,
             string orderId, DateTime time) { }
+        protected virtual void OnOrderUpdate(Order order, double limitPrice, double stopPrice,
+            int quantity, int filled, double averageFillPrice,
+            OrderState orderState, DateTime time, ErrorCode error, string nativeError) { }
 
         // ───────────────────────────────────────────
         // Order submission methods
@@ -124,9 +127,19 @@ namespace NinjaTrader.NinjaScript.Strategies
             _orderEngine?.SubmitEntry(signalName, MarketPosition.Short, quantity);
         }
 
+        protected void ExitLong()
+        {
+            _orderEngine?.SubmitMarketExit("", MarketPosition.Long, "ExitLong");
+        }
+
         protected void ExitLong(string exitSignalName, string fromEntrySignalName)
         {
             _orderEngine?.SubmitMarketExit(fromEntrySignalName, MarketPosition.Long, exitSignalName);
+        }
+
+        protected void ExitShort()
+        {
+            _orderEngine?.SubmitMarketExit("", MarketPosition.Short, "ExitShort");
         }
 
         protected void ExitShort(string exitSignalName, string fromEntrySignalName)

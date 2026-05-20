@@ -135,6 +135,109 @@ def color_class(value):
     return "zero"
 
 
+def session_from_time(time_str):
+    """Infer session from HH:mm time (ET).
+    Asia: 18:00-01:59, Europa: 02:00-09:29, America: 09:30-15:50
+    """
+    try:
+        h, m = int(time_str[:2]), int(time_str[3:5])
+    except (ValueError, IndexError):
+        return "Desconocida"
+    t = h + m / 60.0
+    if t >= 18.0:
+        return "Asia"
+    if t < 2.0:
+        return "Asia"
+    if t < 9.5:
+        return "Europa"
+    return "America"
+
+
+def trading_day_from(date_str, time_str):
+    """Compute the trading day date. Trading day starts at 18:00 ET.
+    If time >= 18:00, trading day = that calendar date.
+    If time < 18:00, trading day = previous calendar date.
+    """
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        h = int(time_str[:2])
+    except (ValueError, IndexError):
+        return date_str
+    if h < 18:
+        from datetime import timedelta
+        dt = dt - timedelta(days=1)
+    return dt.strftime("%Y-%m-%d")
+
+
+def parse_trades_csv(filepath):
+    """Parse trades_log CSV to extract session-level PnL by inferring session from time.
+    Returns dict: {session_name: [(trading_day, pnl, exit_reason), ...]}
+    """
+    session_trades = {}
+    if not os.path.exists(filepath):
+        return session_trades
+
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
+
+    if len(lines) < 2:
+        return session_trades
+
+    INTEGER_POSITIONS = {14}
+
+    for line in lines[1:]:
+        line = line.strip()
+        if not line:
+            continue
+
+        parts = line.split(',')
+        if len(parts) < 5:
+            continue
+
+        date_str = parts[0]
+        time_str = parts[1]
+        action = parts[2]
+
+        if action != "EXIT":
+            continue
+
+        rest = parts[3:]
+        tokens = [date_str, time_str, action]
+        idx = 0
+        while idx < len(rest):
+            logical_pos = len(tokens)
+            if logical_pos in INTEGER_POSITIONS:
+                tokens.append(rest[idx])
+                idx += 1
+            elif logical_pos == 13:
+                tokens.append(rest[idx])
+                idx += 1
+            elif idx + 1 < len(rest) and len(rest[idx + 1]) == 2 and rest[idx + 1].isdigit():
+                tokens.append(rest[idx] + '.' + rest[idx + 1])
+                idx += 2
+            else:
+                tokens.append(rest[idx])
+                idx += 1
+
+        if len(tokens) < 14:
+            continue
+
+        try:
+            pnl = float(tokens[10])
+        except (ValueError, IndexError):
+            continue
+
+        exit_reason = tokens[13] if len(tokens) > 13 else ""
+        sesion = session_from_time(time_str)
+        tday = trading_day_from(date_str, time_str)
+
+        if sesion not in session_trades:
+            session_trades[sesion] = []
+        session_trades[sesion].append((tday, pnl, exit_reason))
+
+    return session_trades
+
+
 def generate_html(output_dir):
     daily_path = os.path.join(output_dir, "mnq10minv2_daily_log.csv")
     if not os.path.exists(daily_path):
@@ -147,6 +250,10 @@ def generate_html(output_dir):
     if len(lines) < 2:
         print("Error: archivo vacio")
         sys.exit(1)
+
+    # Parse session breakdown from trades_log (infers session from time)
+    trades_path = os.path.join(output_dir, "mnq10minv2_trades_log.csv")
+    session_stats = parse_trades_csv(trades_path)
 
     days = []
     for line in lines[1:]:
@@ -295,6 +402,73 @@ tr:hover {{
         html += f'<td class="{color_class(month_accum)}">{format_money(month_accum)}</td>'
         html += f'<td>{month_trades}</td><td></td></tr>\n'
         html += "</table>\n"
+
+    # Session breakdown — one section per session, tables by month
+    if session_stats:
+        session_order = ["America", "Asia", "Europa"]
+        for s in session_order:
+            if s not in session_stats:
+                continue
+            trades_list = session_stats[s]
+            # Group by trading day
+            by_day = {}
+            for tday, pnl, reason in trades_list:
+                if tday not in by_day:
+                    by_day[tday] = {"pnl": 0.0, "trades": 0, "stops": 0, "tps": 0, "bes": 0}
+                by_day[tday]["pnl"] += pnl
+                by_day[tday]["trades"] += 1
+                if reason == "StopLoss":
+                    by_day[tday]["stops"] += 1
+                elif reason == "TakeProfit":
+                    by_day[tday]["tps"] += 1
+                elif reason == "Breakeven":
+                    by_day[tday]["bes"] += 1
+
+            # Group days by month
+            by_month = {}
+            for tday in sorted(by_day.keys()):
+                dt = datetime.strptime(tday, "%Y-%m-%d")
+                mkey = (dt.year, dt.month)
+                if mkey not in by_month:
+                    by_month[mkey] = []
+                by_month[mkey].append((tday, by_day[tday]))
+
+            total_pnl = sum(d["pnl"] for d in by_day.values())
+            total_trades = sum(d["trades"] for d in by_day.values())
+
+            html += f'<h2>Sesion {s} <span style="font-size:14px;color:#aaa;">({total_trades} trades, '
+            html += f'<span class="{color_class(total_pnl)}">{format_money(total_pnl)}</span>)</span></h2>\n'
+
+            for (year, month), month_days in by_month.items():
+                month_pnl = sum(d["pnl"] for _, d in month_days)
+                month_trades = sum(d["trades"] for _, d in month_days)
+                month_stops = sum(d["stops"] for _, d in month_days)
+                month_tps = sum(d["tps"] for _, d in month_days)
+                month_bes = sum(d["bes"] for _, d in month_days)
+
+                html += f'<h3 style="color:#ccc;margin-top:20px;">{MONTH_NAMES[month]} {year}</h3>\n'
+                html += """<table>
+<tr><th>Dia</th><th>PnL</th><th>#Trades</th><th>Stops</th><th>TPs</th><th>BEs</th><th>Acumulado</th></tr>
+"""
+                accum = 0
+                for tday, d in month_days:
+                    accum += d["pnl"]
+                    day_num = datetime.strptime(tday, "%Y-%m-%d").day
+                    html += f'<tr><td>{day_num}</td>'
+                    html += f'<td class="{color_class(d["pnl"])}">{format_money(d["pnl"])}</td>'
+                    html += f'<td>{d["trades"]}</td>'
+                    html += f'<td>{d["stops"]}</td>'
+                    html += f'<td>{d["tps"]}</td>'
+                    html += f'<td>{d["bes"]}</td>'
+                    html += f'<td class="{color_class(accum)}">{format_money(accum)}</td></tr>\n'
+
+                html += f'<tr class="month-total"><td>MES</td>'
+                html += f'<td class="{color_class(month_pnl)}">{format_money(month_pnl)}</td>'
+                html += f'<td>{month_trades}</td>'
+                html += f'<td>{month_stops}</td>'
+                html += f'<td>{month_tps}</td>'
+                html += f'<td>{month_bes}</td><td></td></tr>\n'
+                html += "</table>\n"
 
     html += f"""
 <div class="grand-summary">

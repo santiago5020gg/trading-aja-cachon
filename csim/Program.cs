@@ -27,6 +27,9 @@ namespace CSimulator
         public string TickFile = null;
         public string TrailTP1 = null; // "act:stp,act:stp,..." overrides trailing TP1
         public string TrailTP2 = null; // "act:stp,act:stp,..." overrides trailing TP2
+        public bool? OperarAsia = null;
+        public bool? OperarEuropa = null;
+        public bool? OperarAmerica = null;
     }
 
     // ───────────────────────────────────────────────
@@ -93,6 +96,14 @@ namespace CSimulator
             strategy.MaxTrades = config.MaxTrades;
             strategy.PerdidaMaxDiaria = config.PerdidaMaxDiaria;
             strategy.HoraCierre = config.HoraCierre;
+
+            // Session flags — if any is specified, only enable those; otherwise keep defaults
+            if (config.OperarAsia != null || config.OperarEuropa != null || config.OperarAmerica != null)
+            {
+                strategy.OperarAsia = config.OperarAsia == true;
+                strategy.OperarEuropa = config.OperarEuropa == true;
+                strategy.OperarAmerica = config.OperarAmerica == true;
+            }
 
             // Recalculate derived fields that depend on MaxTrades
             var flags2 = BindingFlags.NonPublic | BindingFlags.Instance;
@@ -607,6 +618,15 @@ namespace CSimulator
                     case "--trail-tp2":
                         if (++i < args.Length) config.TrailTP2 = args[i];
                         break;
+                    case "--asia":
+                        config.OperarAsia = true;
+                        break;
+                    case "--europa":
+                        config.OperarEuropa = true;
+                        break;
+                    case "--america":
+                        config.OperarAmerica = true;
+                        break;
                     default:
                         // Positional argument = tick file
                         if (!args[i].StartsWith("--"))
@@ -638,6 +658,10 @@ namespace CSimulator
             Console.WriteLine("  --no-telemetry        Disable telemetry JSON writes");
             Console.WriteLine("  --trail-tp1 <spec>    Trailing TP1 escalones act:stp,... (default: 75:45,85:60,95:80,99:95)");
             Console.WriteLine("  --trail-tp2 <spec>    Trailing TP2 escalones act:stp,... (default: 50:18,70:50,85:60,90:70,95:84,98:94)");
+            Console.WriteLine("  --asia                Habilitar sesion Asia (18:00-02:00 ET)");
+            Console.WriteLine("  --europa              Habilitar sesion Europa (02:00-09:30 ET)");
+            Console.WriteLine("  --america             Habilitar sesion America (09:30-15:50 ET)");
+            Console.WriteLine("  (si no se especifica ninguna sesion, usa default: solo America)");
         }
     }
 }

@@ -58,3 +58,15 @@ python gen_report.py csim/output/abr-may-cs5-cbe5-bk60-mt3-pmd500-1a2
   csim\bin\Release\net9.0\csim.exe --trades 3 --perdida-max 600 --modo 1a1 --colchon 3 --colchon-be 3 --breakeven-pct 40
   --trail-tp1 "50:25,68:45,84:65,96:88"
   --trail-tp2 "38:14,56:35,74:54,86:68,94:82,99:94" --no-telemetry "historicos test\2026\MNQ 06-26.Last.txt"
+
+
+
+  # 19/05/2026 full parametros multisesion
+
+  dotnet run --project csim --trades 3 --perdida-max 600 --modo 1a1 --colchon 3 --colchon-be 3
+  --breakeven-pct 40 --america --no-telemetry "historicos test\2026\MNQ 06-26.Last.txt"
+
+
+
+dotnet run --project csim --trades 10 --perdida-max 1000 --modo 1a1 --colchon 3 --colchon-be 3
+  --breakeven-pct 60 --asia --europa --america --no-telemetry "historicos test\2026\MNQ 03-26.Last-001.txt"
