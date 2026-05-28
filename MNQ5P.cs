@@ -290,7 +290,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 // 1. Setup
                 BarrasConfirmacion = 5;
-                UmbralATR = 50;
+                UmbralATR = 70;
                 BarrasCanal = 10;
                 MaxBarrasEspera = 30;
                 ColchonStop = 5;
@@ -524,6 +524,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ProcesarConfirmandoTendencia()
         {
+            // Track peak ATR during trend confirmation (impulse may develop after crossover)
+            if (atr14[0] > atrImpulso)
+                atrImpulso = atr14[0];
+
             bool confirmado;
 
             if (direccionCruce == 1)
@@ -538,8 +542,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 {
                     barrasComprimidas = 0;
                     estado = BotState.BuscandoCanal;
-                    lastDecision = string.Format("TENDENCIA_CONFIRMADA dir={0} barras={1}",
-                        direccionCruce == 1 ? "ALCISTA" : "BAJISTA", barrasConfirmadas);
+                    lastDecision = string.Format("TENDENCIA_CONFIRMADA dir={0} barras={1} atrPeak={2:F2}",
+                        direccionCruce == 1 ? "ALCISTA" : "BAJISTA", barrasConfirmadas, atrImpulso);
                 }
                 else
                 {
@@ -572,6 +576,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                 lastDecision = "CANAL_INVALIDO_RECRUCE_EMAs";
                 return;
             }
+
+            // Update peak ATR if still expanding (impulse not finished yet)
+            if (barrasComprimidas == 0 && atr14[0] > atrImpulso)
+                atrImpulso = atr14[0];
 
             // Check ATR compression
             double umbralCompresion = atrImpulso * (UmbralATR / 100.0);
@@ -1289,7 +1297,6 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         private void ResetSession()
         {
-            estado = BotState.EsperandoCruce;
             tradeDirection = 0;
             breakevenHit = false;
             tp1StopNivel = 0;
@@ -1300,9 +1307,6 @@ namespace NinjaTrader.NinjaScript.Strategies
             lastExitReason = "";
             entryPrice = 0;
             stopDistance = 0;
-            direccionCruce = 0;
-            atrImpulso = 0;
-            barrasConfirmadas = 0;
             barrasComprimidas = 0;
             barrasEsperando = 0;
             resistencia = 0;
@@ -1310,7 +1314,34 @@ namespace NinjaTrader.NinjaScript.Strategies
             tamanoCanal = 0;
             riesgo1Micro = 0;
             contratosCalculados = 0;
-            lastDecision = string.Format("NEW_SESSION_{0}", sesionActual);
+
+            // If EMAs are already crossed and price confirms, skip to BuscandoCanal
+            if (ema20[0] > ema200[0] && Close[0] > ema20[0] && Close[0] > ema200[0])
+            {
+                direccionCruce = 1;
+                atrImpulso = atr14[0];
+                barrasConfirmadas = 0;
+                barrasComprimidas = 0;
+                estado = BotState.BuscandoCanal;
+                lastDecision = string.Format("NEW_SESSION_{0} EMAs_YA_ALCISTAS directo_BuscandoCanal", sesionActual);
+            }
+            else if (ema20[0] < ema200[0] && Close[0] < ema20[0] && Close[0] < ema200[0])
+            {
+                direccionCruce = -1;
+                atrImpulso = atr14[0];
+                barrasConfirmadas = 0;
+                barrasComprimidas = 0;
+                estado = BotState.BuscandoCanal;
+                lastDecision = string.Format("NEW_SESSION_{0} EMAs_YA_BAJISTAS directo_BuscandoCanal", sesionActual);
+            }
+            else
+            {
+                direccionCruce = 0;
+                atrImpulso = 0;
+                barrasConfirmadas = 0;
+                estado = BotState.EsperandoCruce;
+                lastDecision = string.Format("NEW_SESSION_{0}", sesionActual);
+            }
         }
 
         private void ResetDaily()
